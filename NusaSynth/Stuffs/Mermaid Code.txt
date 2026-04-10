@@ -1,0 +1,218 @@
+---
+config:
+  layout: fixed
+---
+flowchart TB
+    BG["<b>Background Research</b>
+    ─────────────────────
+    • Dataset NusaX-Senti hanya memiliki 500 data train per bahasa daerah
+    • Kurasi manual oleh penutur asli mahal, lambat, dan tidak scalable
+    • LLM modern bias terhadap bahasa Inggris dan budaya Barat"] --> PR["<b>Problems</b>
+    ─────────────────────
+    • LLM tunggal rentan menghasilkan campur kode dan halusinasi linguistik
+    • Tidak ada mekanisme validasi otomatis untuk kemurnian bahasa dan konsistensi label sentimen
+    • Belum ada framework multi-agent untuk generasi data sentimen bahasa daerah Indonesia"]
+    PR --> ST["<b>Study</b>
+    ─────────────────────
+    • Pengembangan NusaSynth, framework
+    • Multi-Agent untuk generasi data sentimen sintetis pada bahasa daerah low-resource"]
+    ST --> CT["<b>Contribution</b>
+    ─────────────────────
+    • Arsitektur multi-agen spesialis Contextualizer, Generator, Sentiment Validator, Linguistic Validator
+    • Mekanisme feedback loop untuk kemurnian linguistik dan konsistensi label sentimen
+    • Augmentasi dataset NusaX-Senti berbasis Agentic AI"]
+    CT --> IN["<b>Insight</b>
+    ─────────────────────
+    • Peningkatan F1-Score pada downstream task IndoBERT/XLM-R
+    • Data sintetis bebas campur kode dengan label sentimen konsisten
+    • Framework yang scalable dan replicable untuk bahasa low-resource lainnya"]
+
+    style BG fill:#E3F2FD,stroke:#1976D2,stroke-width:2px,text-align:left
+    style PR fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,text-align:left
+    style ST fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,text-align:left
+    style CT fill:#E8F5E9,stroke:#388E3C,stroke-width:2px,text-align:left
+    style IN fill:#FFFDE7,stroke:#FBC02D,stroke-width:2px,text-align:left
+
+
+------------------------------------
+
+
+flowchart TD
+    START(["Mulai"])
+    
+    T1["Persiapan Data"]
+    A1["• Pengumpulan dataset NusaX-Senti
+    • Seleksi bahasa daerah target low-resource dari NusaX
+    • Eksplorasi dan analisis data seed
+      500 train per bahasa"]
+
+    T2["Perancangan dan Pengembangan NusaSynth"]
+    A2["• Desain arsitektur multi-agent
+    • Implementasi agen-agen spesialis
+    • Rekayasa prompt per agen
+    • Mekanisme feedback loop
+    • Integrasi pipeline end-to-end"]
+    
+    T3["Generasi Data Sintetis"]
+    A3["• Eksekusi pipeline NusaSynth pada bahasa daerah target
+    • Iterasi dan penyempurnaan parameter generasi
+    • Akumulasi korpus sintetis"]
+    
+    T4["Evaluasi"]
+    A4["• Evaluasi kualitas data: rasio filter, konsistensi label,kemurnian bahasa
+    • Evaluasi performa fine-tuning IndoBERT dan XLM-R
+    • Perbandingan F1-Score: data asli vs augmentasi"]
+    
+    FINISH(["Selesai"])
+
+    START --> T1
+    T1 --> T2
+    T2 --> T3
+    T3 --> T4
+    T4 --> FINISH
+    
+    T1 -.- A1
+    T2 -.- A2
+    T3 -.- A3
+    T4 -.- A4
+
+    classDef wide padding:300px;
+    classDef wide_2 padding:400px;
+    classDef bigText font-size:20px,font-weight:bold;
+    classDef bigText_2 font-size:18px,font-weight:bold;
+
+    class START,FINISH,T1,T2,T3,T4 bigText
+    class T1,T2,T3,T4 wide
+    class A1,A2,A3,A4 wide_2
+    class A1,A2,A3,A4 bigText_2
+
+    style START fill:#4CAF50,color:#fff
+    style FINISH fill:#F44336,color:#fff
+    style T1 fill:#E3F2FD,stroke:#1976D2
+    style T2 fill:#E3F2FD,stroke:#1976D2
+    style T3 fill:#E3F2FD,stroke:#1976D2
+    style T4 fill:#E3F2FD,stroke:#1976D2
+    style A1 fill:#fff,stroke:#999,stroke-dasharray:5,text-align:left
+    style A2 fill:#fff,stroke:#999,stroke-dasharray:5,text-align:left
+    style A3 fill:#fff,stroke:#999,stroke-dasharray:5,text-align:left
+    style A4 fill:#fff,stroke:#999,stroke-dasharray:5,text-align:left
+
+
+------------------------
+
+
+flowchart LR
+    SEED["🗃️ Seed Data
+    NusaX-Senti
+    500 train/bahasa"]
+    
+    CA["🧠 Contextualizer
+    Agent
+    ──────────────
+    • Analisis distribusi seed
+    • Tentukan topik, persona,
+      gaya bahasa, dan sentimen
+    • Generate parameter
+      kontekstual"]
+    
+    DG["✍️ Dialect Generator
+    Agent
+    ──────────────
+    • Terima parameter dari
+      Contextualizer
+    • Generasi teks sentimen
+      dalam bahasa daerah murni
+    • Patuhi constraint
+      linguistik"]
+    
+    SV["🏷️ Sentiment
+    Validator Agent
+    ──────────────
+    • Verifikasi konsistensi
+      label sentimen
+    • Deteksi ketidaksesuaian
+      polaritas opini
+    • ✅ Lolos / ❌ Tolak"]
+    
+    LV["🔍 Linguistic
+    Validator Agent
+    ──────────────
+    • Periksa kemurnian bahasa
+    • Deteksi campur kode
+    • Deteksi token asing
+    • ✅ Lolos / ❌ Tolak"]
+    
+    OUT["📦 Synthetic
+    Dataset
+    ──────────────
+    Data sintetis
+    tervalidasi"]
+
+    SEED --> CA
+    CA --> DG
+    DG --> SV
+    SV -->|"✅ Lolos"| LV
+    SV -->|"❌ Tolak + Feedback"| DG
+    LV -->|"✅ Lolos"| OUT
+    LV -->|"❌ Tolak + Feedback"| DG
+
+    style SEED fill:#ECEFF1,stroke:#607D8B,stroke-width:2px
+    style CA fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    style DG fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
+    style SV fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
+    style LV fill:#FCE4EC,stroke:#C62828,stroke-width:2px
+    style OUT fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
+
+
+
+-------------------
+
+
+flowchart TB
+    SEED["<b>Seed Data</b>
+    ──────────────
+    NusaX-Senti
+    500 train/bahasa
+    (iterasi per seed +
+    few-shot examples)"] --> CA["<b>Contextualizer Agent</b>
+    ──────────────
+    • Terima 1 seed per iterasi
+    • Analisis konteks seed
+    • Identifikasi aspek variasi
+      secara adaptif (min. 3)
+    • Output: instruksi variasi"]
+    CA --> DG["<b>Dialect Generator Agent</b>
+    ──────────────
+    • Terima input dari
+      Contextualizer
+    • Generasi N kalimat sintetis
+      dalam bahasa daerah murni
+    • Patuhi constraint
+      linguistik"]
+    DG --> SV["<b>Sentiment Validator Agent</b>
+    ──────────────
+    • Verifikasi konsistensi
+      label sentimen
+    • Deteksi ketidaksesuaian
+      polaritas opini
+    • Lolos / Tolak"]
+    SV -- Lolos --> LV["<b>Linguistic Validator Agent</b>
+    ──────────────
+    • Periksa kemurnian bahasa
+    • Deteksi campur kode
+    • Deteksi token asing
+    • Lolos / Tolak"]
+    SV -- Tolak + Feedback --> DG
+    LV -- Lolos --> OUT["<b>Synthetic Dataset</b>
+    ──────────────
+    Data sintetis
+    tervalidasi"]
+    LV -- Tolak + Feedback --> DG
+
+    style SEED fill:#ECEFF1,stroke:#607D8B,stroke-width:2px,text-align:left
+    style CA fill:#E3F2FD,stroke:#1976D2,stroke-width:2px,text-align:left
+    style DG fill:#E8F5E9,stroke:#388E3C,stroke-width:2px,text-align:left
+    style SV fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,text-align:left
+    style LV fill:#FCE4EC,stroke:#C62828,stroke-width:2px,text-align:left
+    style OUT fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,text-align:left
+
