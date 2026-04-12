@@ -186,8 +186,10 @@ cython_debug/
 
 # Project-specific
 /doc
+/data
+/NusaSynth
 CLAUDE.md
-/output/
+/outputs/
 /results/
 
 # Downloaded datasets (rebuild-able from HuggingFace)
