@@ -24,8 +24,8 @@ TRAIN_BATCH_SIZE = 16        # paper = 16, -> VRAM 8GB tidak cukup → 4 + grad_
 EVAL_BATCH_SIZE = 64      # paper = 64, turunkan untuk VRAM
 # GRADIENT_ACCUMULATION_STEPS = 4   # effective batch = 4 * 4 = 16 (sama dengan paper)
 EARLY_STOPPING_PATIENCE = 5
-SEED = 123
-OUTPUT_BASE_DIR = "outputs/nusabert-sentiment_seed_123"
+SEED = 42
+OUTPUT_BASE_DIR = "outputs/nusabert-sentiment_seed_42"
 
 
 def finetune(lang_code: str):
@@ -113,6 +113,7 @@ def finetune(lang_code: str):
         output_dir=output_dir,
         eval_strategy="epoch",
         save_strategy="epoch",
+        logging_strategy="epoch",
         per_device_train_batch_size=TRAIN_BATCH_SIZE,
         per_device_eval_batch_size=EVAL_BATCH_SIZE,
         # gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS,
@@ -154,13 +155,19 @@ def finetune(lang_code: str):
 
     trainer.train()
 
+    # Evaluate pada train set (1x, untuk lihat train F1/accuracy final)
+    train_results = trainer.evaluate(tokenized_dataset["train"], metric_key_prefix="train")
+    print(f"\nTrain Results [{lang_code}] ({model_name}):")
+    print(f"  Train F1:  {train_results['train_f1']:.4f}")
+    print(f"  Train Acc: {train_results['train_accuracy']:.4f}")
+
     # Simpan training history
     train_history = trainer.state.log_history
 
     test_results = trainer.evaluate(tokenized_dataset["test"])
     print(f"\nTest Results [{lang_code}] ({model_name}):")
-    print(f"F1 (macro): {test_results['eval_f1']:.4f}")
-    print(f"Accuracy:   {test_results['eval_accuracy']:.4f}")
+    print(f"  F1 (macro): {test_results['eval_f1']:.4f}")
+    print(f"  Accuracy:   {test_results['eval_accuracy']:.4f}")
 
     best_model_dir = f"{output_dir}/best"
     trainer.save_model(best_model_dir)
