@@ -189,6 +189,7 @@ cython_debug/
 /data
 /NusaSynth
 CLAUDE.md
+agent_doc/
 /outputs/
 /results/
 
@@ -197,3 +198,5 @@ data/nusax_senti/
 
 # macOS
 .DS_Store
+
+model.bin

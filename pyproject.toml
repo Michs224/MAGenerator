@@ -18,6 +18,12 @@ dependencies = [
     "transformers>=5.5.3",
     "torch>=2.11.0",
     "torchvision>=0.26.0",
+    "langgraph>=1.1.6",
+    "google-generativeai>=0.8.6",
+    "langchain>=1.2.15",
+    "langsmith>=0.7.31",
+    "langchain-google-genai>=4.2.1",
+    "python-dotenv>=1.0.0",
 ]
 
 [[tool.uv.index]]
