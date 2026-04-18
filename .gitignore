@@ -187,7 +187,10 @@ cython_debug/
 # Project-specific
 /doc
 /data
-/NusaSynth
+NusaSynth/Stuffs
+NusaSynth/cites
+NusaSynth/document
+NusaSynth/Refs
 CLAUDE.md
 agent_doc/
 /outputs/

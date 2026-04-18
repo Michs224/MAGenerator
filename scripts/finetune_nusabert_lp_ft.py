@@ -13,10 +13,6 @@ from transformers import (
 )
 
 # Config — LP-FT (Linear Probing then Fine-Tuning)
-# Tahap 1: Freeze semua BERT layers, hanya train classifier head (LR tinggi, ~10 epoch)
-#   → mencegah random head merusak representasi pretrained
-# Tahap 2: Unfreeze top-2 layers + pooler, turunkan LR drastis, fine-tune
-#   → adapt upper layers ke task tanpa merusak lower layers
 MODEL_CHECKPOINT = "LazarusNLP/NusaBERT-large"
 # TARGET_LANGS = ["ace", "ban", "bjn", "jav", "mad", "min", "sun"]
 # TARGET_LANGS = ["ace", "ban", "bbc", "bjn", "bug", "eng", "ind", "jav", "mad", "min", "nij", "sun"]
@@ -24,13 +20,13 @@ TARGET_LANGS = ["jav"]
 INPUT_MAX_LENGTH = 128
 # Stage 1: Linear Probing
 LP_EPOCHS = 10
-LP_LEARNING_RATE = 5e-4
+LP_LEARNING_RATE = 2e-4
 # Stage 2: Fine-Tuning
-FT_EPOCHS = 100
-FT_LEARNING_RATE = 2e-5
+FT_EPOCHS = 50
+FT_LEARNING_RATE = 1e-5
 FT_UNFREEZE_TOP_LAYERS = 4
-WEIGHT_DECAY = 0.1
-TRAIN_BATCH_SIZE = 16
+WEIGHT_DECAY = 0.05
+TRAIN_BATCH_SIZE = 8
 EVAL_BATCH_SIZE = 64
 EARLY_STOPPING_PATIENCE = 5
 SEED = 42
@@ -77,10 +73,8 @@ def finetune(lang_code: str):
     config.num_labels = num_labels
     config.label2id = label2id
     config.id2label = id2label
-    # Naikkan dropout: frozen layers jadi "noisy" selama training → top layers sulit menghafal pattern
-    # Test time: dropout dimatikan otomatis (model.eval()) → tidak pengaruhi test F1
-    config.hidden_dropout_prob = 0.15          # default 0.1
-    config.attention_probs_dropout_prob = 0.15 # default 0.1
+    config.hidden_dropout_prob = 0.2 # default 0.1
+    config.attention_probs_dropout_prob = 0.2 # default 0.1
     
     from transformers import AutoModelForSequenceClassification as AutoMSC
     from collections import OrderedDict
@@ -124,20 +118,40 @@ def finetune(lang_code: str):
 
     output_dir = f"{OUTPUT_BASE_DIR}/{model_name}-{lang_code}"
 
+    # Custom model: bypass pooler sepenuhnya, [CLS] hidden state → Linear langsung
+    # Sesuai paper probing (Peters et al., Tenney et al.) — pooler tidak dipakai sama sekali
+    from transformers import BertModel
+    from transformers.modeling_outputs import SequenceClassifierOutput
+
+    class BertLinearProbe(torch.nn.Module):
+        """Mask-aware mean pooling → Linear (no pooler). Exclude padding tokens dari rata-rata."""
+        def __init__(self):
+            super().__init__()
+            self.config = config  # expose config for HuggingFace Trainer
+            self.bert = BertModel(config, add_pooling_layer=False)
+            self.classifier = torch.nn.Linear(config.hidden_size, num_labels)
+
+        def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, labels=None, **kwargs):
+            out = self.bert(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
+            mask = attention_mask.unsqueeze(-1).float()
+            pooled = (out.last_hidden_state * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+            logits = self.classifier(pooled)
+            loss = torch.nn.CrossEntropyLoss()(logits, labels) if labels is not None else None
+            return SequenceClassifierOutput(loss=loss, logits=logits)
+
     # ── Stage 1: Linear Probing (freeze all BERT, train head only) ──
-    print(f"\n--- Stage 1: Linear Probing (head only, LR={LP_LEARNING_RATE}) ---")
+    print(f"\n--- Stage 1: Linear Probing (no pooler, head only, LR={LP_LEARNING_RATE}) ---")
 
     _fixed_state_dict = {k: v.clone() for k, v in new_state_dict.items()}
 
     def model_init_lp():
-        m = AutoMSC.from_config(config)
-        m.load_state_dict(_fixed_state_dict, strict=False)
-        # Freeze everything except classifier head
+        m = BertLinearProbe()
+        m.load_state_dict(_fixed_state_dict, strict=False)  # load encoder/emb, skip pooler+clf keys
         for param in m.bert.parameters():
             param.requires_grad = False
         trainable = sum(p.numel() for p in m.parameters() if p.requires_grad)
         frozen   = sum(p.numel() for p in m.parameters() if not p.requires_grad)
-        print(f"  [LP] All BERT frozen | Trainable (head only): {trainable:,} | Frozen: {frozen:,}")
+        print(f"[LP] Pooler bypassed | Trainable (Linear only): {trainable:,} | Frozen: {frozen:,}")
         return m
 
     lp_args = TrainingArguments(
@@ -153,7 +167,7 @@ def finetune(lang_code: str):
         num_train_epochs=LP_EPOCHS,
         save_total_limit=1,
         load_best_model_at_end=True,
-        metric_for_best_model="f1",
+        metric_for_best_model="loss",
         bf16=torch.cuda.is_available(),
         report_to="none",
         seed=SEED,
@@ -172,7 +186,7 @@ def finetune(lang_code: str):
 
     lp_trainer.train()
     lp_val = lp_trainer.evaluate(tokenized_dataset["validation"])
-    print(f"  [LP] Best val F1: {lp_val['eval_f1']:.4f}")
+    print(f"[LP] Best val F1: {lp_val['eval_f1']:.4f}")
 
     # Save LP state dict for Stage 2
     lp_state_dict = {k: v.clone() for k, v in lp_trainer.model.state_dict().items()}
@@ -185,8 +199,8 @@ def finetune(lang_code: str):
     print(f"\n--- Stage 2: Fine-Tuning (top-{FT_UNFREEZE_TOP_LAYERS} layers, LR={FT_LEARNING_RATE}) ---")
 
     def model_init_ft():
-        m = AutoMSC.from_config(config)
-        m.load_state_dict(lp_state_dict, strict=False)
+        m = BertLinearProbe()
+        m.load_state_dict(lp_state_dict)  # same architecture, strict load
         n_layers = len(m.bert.encoder.layer)
         freeze_until = n_layers - FT_UNFREEZE_TOP_LAYERS
 
@@ -195,12 +209,12 @@ def finetune(lang_code: str):
         for i, layer in enumerate(m.bert.encoder.layer):
             for param in layer.parameters():
                 param.requires_grad = (i >= freeze_until)
-        # pooler + classifier head: always trainable
+        # classifier head: always trainable (no pooler)
 
         trainable = sum(p.numel() for p in m.parameters() if p.requires_grad)
         frozen   = sum(p.numel() for p in m.parameters() if not p.requires_grad)
-        print(f"  [FT] Frozen: 0-{freeze_until-1} | Trainable: {freeze_until}-{n_layers-1} + pooler + head")
-        print(f"  [FT] Trainable: {trainable:,} | Frozen: {frozen:,}")
+        print(f"[FT] Frozen: 0-{freeze_until-1} | Trainable: {freeze_until}-{n_layers-1} + head (no pooler)")
+        print(f"[FT] Trainable: {trainable:,} | Frozen: {frozen:,}")
         return m
 
     ft_args = TrainingArguments(
@@ -211,13 +225,13 @@ def finetune(lang_code: str):
         per_device_train_batch_size=TRAIN_BATCH_SIZE,
         per_device_eval_batch_size=EVAL_BATCH_SIZE,
         optim="adamw_torch_fused",
-        # warmup_ratio=0.05,
+        warmup_ratio=0.1,
         learning_rate=FT_LEARNING_RATE,
         weight_decay=WEIGHT_DECAY,
         num_train_epochs=FT_EPOCHS,
         save_total_limit=3,
         load_best_model_at_end=True,
-        metric_for_best_model="f1",
+        metric_for_best_model="loss",
         bf16=torch.cuda.is_available(),
         report_to="none",
         seed=SEED,
@@ -260,7 +274,7 @@ def finetune(lang_code: str):
     best_model_dir = f"{output_dir}/best"
     trainer.save_model(best_model_dir)
     tokenizer.save_pretrained(best_model_dir)
-    print(f"  Saved to: {best_model_dir}")
+    print(f"Saved to: {best_model_dir}")
 
     import json
     history_path = f"{output_dir}/train_history.json"
