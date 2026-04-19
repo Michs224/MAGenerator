@@ -20,7 +20,7 @@ TARGET_LANGS = ["jav"]
 INPUT_MAX_LENGTH = 128
 NUM_TRAIN_EPOCHS = 100
 LEARNING_RATE = 2e-5       # large = 2e-5 (base = 1e-5)
-WEIGHT_DECAY = 0.1
+WEIGHT_DECAY = 0.01
 TRAIN_BATCH_SIZE = 16        # paper = 16, -> VRAM 8GB tidak cukup → 4 + grad_accum 4
 EVAL_BATCH_SIZE = 64      # paper = 64, turunkan untuk VRAM
 # GRADIENT_ACCUMULATION_STEPS = 4   # effective batch = 4 * 4 = 16 (sama dengan paper)
@@ -37,7 +37,7 @@ def finetune(lang_code: str):
 
     # Load data
     data_dir = f"data/nusax_senti/{lang_code}"
-    train_df = pd.read_csv(f"{data_dir}/train.csv")
+    train_df = pd.read_csv(f"{data_dir}/train_syn3.csv")
     valid_df = pd.read_csv(f"{data_dir}/valid.csv")
     test_df = pd.read_csv(f"{data_dir}/test.csv")
 

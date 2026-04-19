@@ -41,7 +41,7 @@ def finetune(lang_code: str):
 
     # Load data
     data_dir = f"data/nusax_senti/{lang_code}"
-    train_df = pd.read_csv(f"{data_dir}/train.csv")
+    train_df = pd.read_csv(f"{data_dir}/train_syn3.csv")
     valid_df = pd.read_csv(f"{data_dir}/valid.csv")
     test_df = pd.read_csv(f"{data_dir}/test.csv")
 

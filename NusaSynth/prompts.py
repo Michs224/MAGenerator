@@ -78,7 +78,7 @@ class SVOutput(BaseModel):
 class LVEvaluation(BaseModel):
     idx: int = Field(description="Index of the sentence being evaluated (from input)")
     naturalness: str = Field(description="Naturalness of the text for a native speaker of the target language")
-    issues: str = Field(description="Linguistic issues observed, or 'none' if clean")
+    issues: str | None = Field(default=None, description="Linguistic issues observed (null if clean)")
     verdict: Literal["PASS", "REJECT"] = Field(description="PASS if linguistically acceptable, REJECT otherwise")
     reason: str | None = Field(default=None, description="Required if REJECT: brief explanation")
 
@@ -284,7 +284,7 @@ For each sentence, you receive:
 
 Use Chain-of-Thought reasoning for each sentence:
 1. naturalness: Evaluate whether the text sounds like natural {lang_name}. Use GlotLID as a language-identity check (shows the detected language and how confidently). Also consider fluency, grammar, and idiomatic use.
-2. issues: Any translationese, broken grammar, or incoherent meaning? Write 'none' if clean.
+2. issues: Any translationese, broken grammar, or incoherent meaning? Leave null if clean.
 3. verdict: PASS or REJECT
 4. reason: required if REJECT
 

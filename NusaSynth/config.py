@@ -22,7 +22,7 @@ DEDUP_THRESHOLD = 0.5  # Jaccard bigram similarity ≥ this → near-duplicate
 # ── Target languages ──────────────────────────────────────────────────────
 # Selected: GlotLID accuracy > 80% AND NusaBERT F1 > 80%
 # TARGET_LANGS = ["jav", "sun", "ace", "bjn", "mad", "min", "ban"]
-TARGET_LANG = ["jav"]
+TARGET_LANG = "jav"
 
 LANG_NAMES: dict[str, str] = {
     "jav": "Javanese",
