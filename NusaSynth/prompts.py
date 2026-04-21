@@ -28,7 +28,7 @@ from NusaSynth.config import SENTENCES_PER_SEED
 
 class VariationPlan(BaseModel):
     strategy: str = Field(description="What to change (aspect, scenario, entity, perspective, etc.)")
-    preserve: str = Field(description="What must stay the same (complementing the strategy)")
+    preserve: str = Field(description="What should remain consistent with the seed (complementing the strategy)")
 
 
 class SeedAnalysis(BaseModel):
@@ -100,20 +100,15 @@ def build_contextualizer_messages(
     """Build (role, content) message list for Contextualizer.
 
     Returns list compatible with ChatGoogleGenerativeAI.invoke().
-    """
-    ld = seed_profile["label_distribution"]
-    al = seed_profile["avg_length_per_label"]
 
+    Note: seed_profile parameter retained for API consistency across agents,
+    but Contextualizer does NOT use corpus-level statistics. Per-seed analysis
+    (domain, style, sentiment_expression) is inferred from individual seed text.
+    Profile is consumed by Generator (length matching) and Filter (threshold).
+    """
     system = f"""You are a linguistic analyst for a multilingual sentiment data augmentation system.
 
 Given {len(seeds)} seed sentences from a {lang_name} sentiment dataset, analyze each and produce {SENTENCES_PER_SEED} variation plans per seed ({len(seeds) * SENTENCES_PER_SEED} total).
-
-Seed Profile ({lang_name}):
-- Label distribution: negative={ld.get('negative', 0)}, neutral={ld.get('neutral', 0)}, positive={ld.get('positive', 0)}
-- Average word count:
-  - negative: avg {al['negative']['mean']} words (std {al['negative']['std']})
-  - neutral:  avg {al['neutral']['mean']} words (std {al['neutral']['std']})
-  - positive: avg {al['positive']['mean']} words (std {al['positive']['std']})
 
 Dataset characteristics:
 - The dataset primarily covers food and restaurant reviews, travel, telecom, shopping, services, and delivery, along with occasional everyday statements
@@ -137,7 +132,7 @@ The {SENTENCES_PER_SEED} variations for each seed must use DIFFERENT expressive 
 - What aspect is the focus (product, service, atmosphere, price-value ratio, specific incident, emotional reaction)
 - How the sentiment is expressed (direct complaint, sarcasm, disappointment narrative, warning, praise story, factual observation)
 
-Do NOT plan {SENTENCES_PER_SEED} sentences that all open the same way or follow the same sentence skeleton with swapped entities."""
+Do NOT plan {SENTENCES_PER_SEED} sentences that all open the same way or follow the same sentence skeleton with swapped entities. Avoid templated strategy descriptions across plans."""
 
     seeds_json = json.dumps(
         [{"id": s["id"], "text": s["text"], "label": s["label"]} for s in seeds],
@@ -159,7 +154,9 @@ def build_generator_messages(
 ) -> list[tuple[str, str]]:
     """Build messages for Generator (first pass or retry)."""
     al = seed_profile["avg_length_per_label"]
-    seed_ref = "\n".join([f'Seed {s["id"]}: "{s["text"]}"' for s in seeds])
+    seed_ref = "\n".join(
+        [f'Seed {s["id"]} ({len(s["text"].split())} words): "{s["text"]}"' for s in seeds]
+    )
 
     if retry_items:
         n_sentences = len(retry_items)
@@ -170,10 +167,11 @@ def build_generator_messages(
 
 Generate ONE sentence per variation instruction. Total: {n_sentences} sentences.
 
-Seed Profile ({lang_name}) — use as length reference:
+Seed Profile ({lang_name}) — length reference per label:
 - negative: avg {al['negative']['mean']} words (std {al['negative']['std']})
 - neutral:  avg {al['neutral']['mean']} words (std {al['neutral']['std']})
 - positive: avg {al['positive']['mean']} words (std {al['positive']['std']})
+- The seed reference sentences below show concrete examples — observe each seed's elaboration depth
 
 Each variation plan includes context derived from its seed:
 - plan_id: unique id of the plan (copy this exactly into your output)
@@ -191,10 +189,16 @@ Rules:
 - Do NOT paraphrase the seed — create genuinely different sentences
 - Match the style and tone of the seeds — your output must sound like it comes from the same data source
 - Code-mixing with Indonesian IS acceptable — the original dataset naturally contains this
-- Sentence length should feel natural — use the seed profile above as a soft reference, not a hard limit
+- Length matching:
+  * Each generated sentence should preserve its source seed's elaboration depth (judged from the seed text itself)
+  * Brief seed → variations of similar brevity
+  * Elaborate seed → variations with similar elaboration
+  * Natural slight variation around the seed's depth is acceptable
+  * The aggregate batch naturally spans lengths because input seeds vary in elaboration depth
+  * Avoid producing sentences with uniform length regardless of source seed
 - CRITICAL: every sentence must be structurally distinct — do NOT repeat the same template with swapped words.
 
-The {len(seeds)} seeds below are your style reference — study their vocabulary and tone:
+The {len(seeds)} seeds below are your style reference — study their vocabulary, tone, and length:
 
 {seed_ref}"""
 

@@ -28,19 +28,46 @@ SAMPLE_RATIO: float | None = None  # 10% per label — flip to None for full run
 
 
 def compute_seed_profile(train_df: pd.DataFrame, lang: str) -> dict:
-    """Always computed on FULL train_df (not sampled), so stats are accurate."""
+    """Always computed on FULL train_df (not sampled), so stats are accurate.
+
+    Includes length percentiles AND concrete short/medium/long example sentences
+    per label — used to ground Contextualizer/Generator with real seed patterns
+    instead of abstract statistical concepts.
+    """
     df = train_df.copy()
     df["word_count"] = df["text"].str.split().str.len()
-    stats = (
-        df.groupby("label")["word_count"]
-        .agg(["mean", "std"])
-        .round(1)
-        .to_dict("index")
-    )
+
+    length_stats: dict = {}
+    length_examples: dict = {}
+
+    for label, group in df.groupby("label"):
+        wc = group["word_count"]
+        length_stats[label] = {
+            "mean": round(float(wc.mean()), 1),
+            "std": round(float(wc.std()), 1),
+            "p10": int(wc.quantile(0.10)),
+            "p25": int(wc.quantile(0.25)),
+            "p50": int(wc.quantile(0.50)),
+            "p75": int(wc.quantile(0.75)),
+            "p90": int(wc.quantile(0.90)),
+            "p95": int(wc.quantile(0.95)),
+            "min": int(wc.min()),
+            "max": int(wc.max()),
+        }
+        # Pick 3 example sentences spanning the length range
+        sorted_g = group.sort_values("word_count").reset_index(drop=True)
+        n = len(sorted_g)
+        length_examples[label] = {
+            "short":  sorted_g.iloc[max(0, int(n * 0.10))]["text"],
+            "medium": sorted_g.iloc[int(n * 0.50)]["text"],
+            "long":   sorted_g.iloc[min(n - 1, int(n * 0.90))]["text"],
+        }
+
     return {
         "lang": lang,
         "label_distribution": train_df["label"].value_counts().to_dict(),
-        "avg_length_per_label": stats,
+        "avg_length_per_label": length_stats,  # keep key for backwards compat
+        "length_examples_per_label": length_examples,
         "unit": "words",
     }
 

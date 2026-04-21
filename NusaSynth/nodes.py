@@ -225,10 +225,14 @@ def collect_node(state: BatchState) -> dict:
 
     Steps:
     1. SV/LV verdict check → candidates, retry, or discard
-    2. Jaccard bigram dedup on candidates (within-batch + vs previously accepted)
-       - near-duplicate + retry < MAX_RETRY → retry with feedback
-       - near-duplicate + retry >= MAX_RETRY → discard
-       - unique → accepted
+    2. (DISABLED) Jaccard bigram dedup — empirically no-op pada jav baseline
+       (max pairwise 0.28 < threshold 0.5 di full pairwise analysis 3.1M pairs).
+       Kode lama dipertahankan sebagai komentar untuk reference dan ablation study.
+    3. (ACTIVE) Per-Sentence Length Match (PSLM) filter — replaces Jaccard.
+       Validates Generator's compliance with prompt directive (preserve seed
+       elaboration depth). Threshold = 1.0 × seed_std per label, data-anchored
+       per-language adaptive. Reference: standard statistical convention
+       (±1 std covers ~68% natural variation).
     """
     sentences = state["current_sentences"]
 
@@ -259,41 +263,104 @@ def collect_node(state: BatchState) -> dict:
             retry_sent["prev_feedback"] = feedback or "Rejected without specific feedback"
             to_retry.append(retry_sent)
 
-    # Step 2: Jaccard bigram dedup on candidates
-    # Reference pool: previously accepted (from earlier retry rounds) + newly kept
-    reference_pool: list[SentenceRecord] = list(state.get("all_accepted", []))
-    dedup_count = 0
+    # Step 2 (DISABLED): Jaccard bigram dedup
+    # ─────────────────────────────────────────────────────────────────────────
+    # Filter ini DINONAKTIFKAN setelah empirical analysis menunjukkan no-op pada
+    # baseline jav (max pairwise Jaccard 0.28 vs threshold 0.5; 0 hits di
+    # 3.1M pairwise comparisons). Detail di agent_doc/data_distribution_analysis.md.
+    #
+    # Slot direncanakan untuk Per-Batch Length Variance Filter (Holtzman 2020) —
+    # validates length variance per batch, addressing actual observed issue
+    # (synthetic length distribution narrow std 5-6 vs seed 14).
+    #
+    # Reference pool dan kode lama dipertahankan untuk facilitate ablation study.
+    # ─────────────────────────────────────────────────────────────────────────
+    # reference_pool: list[SentenceRecord] = list(state.get("all_accepted", []))
+    # dedup_count = 0
+    #
+    # for sent in candidates:
+    #     most_similar_score = 0.0
+    #     most_similar_text = ""
+    #     for ref in reference_pool:
+    #         score = jaccard_bigram(sent["text"], ref["text"])
+    #         if score > most_similar_score:
+    #             most_similar_score = score
+    #             most_similar_text = ref["text"]
+    #
+    #     if most_similar_score >= DEDUP_THRESHOLD:
+    #         dedup_count += 1
+    #         if sent.get("retry_count", 0) >= MAX_RETRY:
+    #             new_discarded.append(sent)
+    #         else:
+    #             retry_sent = dict(sent)
+    #             preview = most_similar_text[:100]
+    #             retry_sent["prev_feedback"] = (
+    #                 f"Near-duplicate (Jaccard={most_similar_score:.2f}). "
+    #                 f"Too similar to: '{preview}'. "
+    #                 f"Generate a structurally different sentence."
+    #             )
+    #             to_retry.append(retry_sent)
+    #     else:
+    #         new_accepted.append(sent)
+    #         reference_pool.append(sent)
+    # ─────────────────────────────────────────────────────────────────────────
 
+    # Step 3 (ACTIVE): Per-Sentence Length Match (PSLM) filter
+    # ─────────────────────────────────────────────────────────────────────────
+    # Validates Generator's compliance dengan prompt directive (preserve seed
+    # elaboration depth). Reject sentences yang drift terlalu jauh dari source
+    # seed length.
+    #
+    # Threshold = 1.0 × seed_std per label (data-anchored, per-language adaptive)
+    #
+    # Empirical runtime correction:
+    # - Initial attempt 0.5 × std → ~68% reject rate (over-aggressive)
+    #   karena absolute threshold tidak scale dengan seed length — seed panjang
+    #   (40+ words) dapat threshold relatif sempit, natural elaboration (+8-10w)
+    #   ter-reject walau ini bukan drift
+    # - Revised ke 1.0 × std → expected ~15-25% reject rate (balanced)
+    # - Statistical interpretation: ±1 std = "within typical variance range"
+    # - jav negative: threshold = 14.3 words
+    # - jav neutral:  threshold = 8.7 words
+    # - jav positive: threshold = 14.1 words
+    # ─────────────────────────────────────────────────────────────────────────
+    seed_lookup = {s["id"]: s for s in state.get("seeds", [])}
+    seed_profile = state.get("seed_profile", {})
+    length_stats = seed_profile.get("avg_length_per_label", {})
+    target_label = state.get("target_label", "")
+    pslm_threshold = 1.0 * float(length_stats.get(target_label, {}).get("std", 14.0))
+
+    length_failed_count = 0
     for sent in candidates:
-        most_similar_score = 0.0
-        most_similar_text = ""
-        for ref in reference_pool:
-            score = jaccard_bigram(sent["text"], ref["text"])
-            if score > most_similar_score:
-                most_similar_score = score
-                most_similar_text = ref["text"]
+        seed = seed_lookup.get(sent.get("seed_id"))
+        if seed is None:
+            # Cannot validate without source seed → accept
+            new_accepted.append(sent)
+            continue
 
-        if most_similar_score >= DEDUP_THRESHOLD:
-            dedup_count += 1
+        seed_len = len(seed["text"].split())
+        gen_len = len(sent["text"].split())
+        deviation = abs(gen_len - seed_len)
+
+        if deviation > pslm_threshold:
+            length_failed_count += 1
             if sent.get("retry_count", 0) >= MAX_RETRY:
                 new_discarded.append(sent)
             else:
                 retry_sent = dict(sent)
-                preview = most_similar_text[:100]
                 retry_sent["prev_feedback"] = (
-                    f"Near-duplicate (Jaccard={most_similar_score:.2f}). "
-                    f"Too similar to: '{preview}'. "
-                    f"Generate a structurally different sentence."
+                    f"Length drift: generated sentence ({gen_len} words) deviates "
+                    f"too far from seed length ({seed_len} words). Generate a sentence "
+                    f"with elaboration depth closer to the seed's character."
                 )
                 to_retry.append(retry_sent)
         else:
             new_accepted.append(sent)
-            reference_pool.append(sent)
 
     total_accepted = len(state.get("all_accepted", [])) + len(new_accepted)
-    dedup_msg = f", {dedup_count} dedup" if dedup_count else ""
+    length_msg = f", {length_failed_count} length_failed" if length_failed_count else ""
     valfail_msg = f", {validation_failed_count} validation_failed" if validation_failed_count else ""
-    print(f"Collect: +{len(new_accepted)} diterima (total {total_accepted}), {len(to_retry)} retry{dedup_msg}, +{len(new_discarded)} dibuang{valfail_msg}")
+    print(f"Collect: +{len(new_accepted)} diterima (total {total_accepted}), {len(to_retry)} retry{length_msg}, +{len(new_discarded)} dibuang{valfail_msg}")
 
     return {
         "all_accepted": new_accepted,

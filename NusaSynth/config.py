@@ -11,7 +11,7 @@ GLOTLID_PATH = ROOT / "models" / "glotlid" / "model.bin"
 OUTPUT_DIR = ROOT / "outputs" / "synthetic"
 
 # ── LLM ────────────────────────────────────────────────────────────────────
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 
 # ── Pipeline constants ─────────────────────────────────────────────────────
 MAX_RETRY = 2
