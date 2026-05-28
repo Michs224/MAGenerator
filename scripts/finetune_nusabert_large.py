@@ -26,7 +26,7 @@ EVAL_BATCH_SIZE = 64      # paper = 64, turunkan untuk VRAM
 # GRADIENT_ACCUMULATION_STEPS = 4   # effective batch = 4 * 4 = 16 (sama dengan paper)
 EARLY_STOPPING_PATIENCE = 5
 SEED = 42
-OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-large"
+OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-large-syn"
 
 
 def finetune(lang_code: str):
@@ -198,6 +198,19 @@ def finetune(lang_code: str):
     gc.collect()
     torch.cuda.empty_cache()
     print(f"GPU memory cleared. VRAM: {torch.cuda.memory_allocated()/1024**2:.0f} MB")
+
+    # Cleanup checkpoint-* dirs (keep best/ + train_history.json)
+    import os
+    import shutil
+    deleted = 0
+    for entry in os.listdir(output_dir):
+        if entry.startswith("checkpoint-"):
+            ckpt_path = os.path.join(output_dir, entry)
+            if os.path.isdir(ckpt_path):
+                shutil.rmtree(ckpt_path)
+                deleted += 1
+    if deleted:
+        print(f"Deleted {deleted} checkpoint dirs in {output_dir}")
 
     return {"train_results": train_results, "val_results": val_results, "test_results": test_results, "train_history": train_history}
 

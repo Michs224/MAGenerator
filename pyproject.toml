@@ -24,6 +24,7 @@ dependencies = [
     "langsmith>=0.7.31",
     "langchain-google-genai>=4.2.1",
     "python-dotenv>=1.0.0",
+    "seaborn>=0.13.2",
 ]
 
 [[tool.uv.index]]
