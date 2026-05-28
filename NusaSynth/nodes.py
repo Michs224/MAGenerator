@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from NusaSynth.config import DEDUP_THRESHOLD, GEMINI_MODEL, MAX_RETRY
+from NusaSynth.config import DEDUP_THRESHOLD, GEMINI_MODEL, MAX_RETRY, PARSE_MAX_RETRY
 from NusaSynth.prompts import (
     ContextualizerOutput,
     GeneratorOutput,
@@ -47,11 +47,31 @@ def contextualizer_node(state: BatchState) -> dict:
         returned = [a.seed_id for a in result.seed_analyses]
         return len(returned) == len(expected_ids) and set(returned) == expected_ids
 
-    result: ContextualizerOutput = structured_llm.invoke(messages)
+    def invoke_with_parse_retry() -> ContextualizerOutput | None:
+        """Invoke structured LLM; retry up to PARSE_MAX_RETRY times on schema parse failure."""
+        total_attempts = PARSE_MAX_RETRY + 1
+        for attempt in range(total_attempts):
+            try:
+                return structured_llm.invoke(messages)
+            except Exception as e:
+                if attempt < PARSE_MAX_RETRY:
+                    print(f"Contextualizer WARNING: parse failed (attempt {attempt + 1}/{total_attempts}: {type(e).__name__}). Coba lagi.")
+                else:
+                    print(f"Contextualizer FAILED: parse failed setelah {total_attempts} attempts ({type(e).__name__}). Batch dibuang.")
+        return None
+
+    result_or_none = invoke_with_parse_retry()
+    if result_or_none is None:
+        return {"variation_plans": [], "next_sid": 0}
+    result: ContextualizerOutput = result_or_none
+
     if not is_valid(result):
         returned = [a.seed_id for a in result.seed_analyses]
         print(f"Contextualizer WARNING: copy-back invalid (dapat {returned}, seharusnya {expected_ids}). Coba lagi sekali.")
-        result = structured_llm.invoke(messages)
+        result_or_none = invoke_with_parse_retry()
+        if result_or_none is None:
+            return {"variation_plans": [], "next_sid": 0}
+        result = result_or_none
         if not is_valid(result):
             returned = [a.seed_id for a in result.seed_analyses]
             print(f"Contextualizer FAILED: copy-back masih invalid (dapat {returned}). Batch dibuang.")
@@ -138,11 +158,31 @@ def generator_node(state: BatchState) -> dict:
         returned = [s.plan_id for s in result.sentences]
         return len(returned) == len(expected_plan_ids) and set(returned) == expected_plan_ids
 
-    result: GeneratorOutput = structured_llm.invoke(messages)
+    def invoke_with_parse_retry() -> GeneratorOutput | None:
+        """Invoke structured LLM; retry up to PARSE_MAX_RETRY times on schema parse failure."""
+        total_attempts = PARSE_MAX_RETRY + 1
+        for attempt in range(total_attempts):
+            try:
+                return structured_llm.invoke(messages)
+            except Exception as e:
+                if attempt < PARSE_MAX_RETRY:
+                    print(f"Generator WARNING: parse failed (attempt {attempt + 1}/{total_attempts}: {type(e).__name__}). Coba lagi.")
+                else:
+                    print(f"Generator FAILED: parse failed setelah {total_attempts} attempts ({type(e).__name__}). Batch dibuang.")
+        return None
+
+    result_or_none = invoke_with_parse_retry()
+    if result_or_none is None:
+        return {"current_sentences": [], "next_sid": state.get("next_sid", 0), "to_retry": []}
+    result: GeneratorOutput = result_or_none
+
     if not is_retry and not is_valid(result):
         returned = sorted([s.plan_id for s in result.sentences])
         print(f"Generator WARNING: plan_id bijection invalid (dapat {returned}, seharusnya {sorted(expected_plan_ids)}). Coba lagi sekali.")
-        result = structured_llm.invoke(messages)
+        result_or_none = invoke_with_parse_retry()
+        if result_or_none is None:
+            return {"current_sentences": [], "next_sid": state.get("next_sid", 0), "to_retry": []}
+        result = result_or_none
         if not is_valid(result):
             returned = sorted([s.plan_id for s in result.sentences])
             print(f"Generator FAILED: plan_id bijection masih invalid (dapat {returned}). Batch dibuang.")

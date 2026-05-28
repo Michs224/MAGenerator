@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, START, StateGraph
 
-from NusaSynth.config import GEMINI_MODEL
+from NusaSynth.config import GEMINI_MODEL, PARSE_MAX_RETRY
 from NusaSynth.prompts import LVOutput, build_lv_messages
 from NusaSynth.state import LVState, SentenceRecord
 from NusaSynth.tools import identify_language
@@ -76,11 +76,37 @@ def lv_run(state: LVState) -> dict:
             returned = [e.idx for e in result.evaluations]
             return len(returned) == len(group) and set(returned) == expected_idx_set
 
-        result: LVOutput = structured_llm.invoke(messages)
+        def invoke_with_parse_retry() -> LVOutput | None:
+            """Invoke structured LLM; retry up to PARSE_MAX_RETRY times on schema parse failure."""
+            total_attempts = PARSE_MAX_RETRY + 1
+            for attempt in range(total_attempts):
+                try:
+                    return structured_llm.invoke(messages)
+                except Exception as e:
+                    if attempt < PARSE_MAX_RETRY:
+                        print(f"LV WARNING seed_id={seed_id}: parse failed (attempt {attempt + 1}/{total_attempts}: {type(e).__name__}). Coba lagi.")
+                    else:
+                        print(f"LV FAILED seed_id={seed_id}: parse failed setelah {total_attempts} attempts ({type(e).__name__}). Group ditandai VALIDATION_FAILED.")
+            return None
+
+        result_or_none = invoke_with_parse_retry()
+        if result_or_none is None:
+            for sent in group:
+                sent["lv_verdict"] = "VALIDATION_FAILED"
+                sent["lv_feedback"] = "lv_parse_failure"
+            return group
+        result: LVOutput = result_or_none
+
         if not is_valid(result):
             returned = [e.idx for e in result.evaluations]
             print(f"LV WARNING seed_id={seed_id}: bijection invalid (dapat {returned}). Coba lagi sekali.")
-            result = structured_llm.invoke(messages)
+            result_or_none = invoke_with_parse_retry()
+            if result_or_none is None:
+                for sent in group:
+                    sent["lv_verdict"] = "VALIDATION_FAILED"
+                    sent["lv_feedback"] = "lv_parse_failure"
+                return group
+            result = result_or_none
             if not is_valid(result):
                 returned = [e.idx for e in result.evaluations]
                 print(f"LV FAILED seed_id={seed_id}: bijection masih invalid (dapat {returned}). Group ditandai VALIDATION_FAILED.")

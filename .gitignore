@@ -189,12 +189,14 @@ cython_debug/
 /data
 NusaSynth/Stuffs
 NusaSynth/cites
-NusaSynth/document
+NusaSynth/Documents
 NusaSynth/Refs
 CLAUDE.md
 agent_doc/
-/outputs/
-/results/
+outputs/
+results/
+tmp_pdf/
+.playwright-mcp/
 
 # Downloaded datasets (rebuild-able from HuggingFace)
 data/nusax_senti/

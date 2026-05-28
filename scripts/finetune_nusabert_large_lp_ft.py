@@ -12,34 +12,36 @@ from transformers import (
     EarlyStoppingCallback,
 )
 
-# Config — Top-4 layer fine-tune: bottom 20 layers frozen, top 4 layers + pooler + head trainable
-# Tujuan: kurangi overfitting (51M trainable vs 337M full) sambil tetap achieve test F1 > paper baseline
-# Justifikasi: frozen lower layers = general multilingual features tetap intact; upper layers = task-specific adaptation
+# Config — LP-FT (Linear Probing then Fine-Tuning)
 MODEL_CHECKPOINT = "LazarusNLP/NusaBERT-large"
 # TARGET_LANGS = ["ace", "ban", "bjn", "jav", "mad", "min", "sun"]
 # TARGET_LANGS = ["ace", "ban", "bbc", "bjn", "bug", "eng", "ind", "jav", "mad", "min", "nij", "sun"]
 TARGET_LANGS = ["jav"]
 INPUT_MAX_LENGTH = 128
-NUM_TRAIN_EPOCHS = 100
-LEARNING_RATE = 2e-5
+# Stage 1: Linear Probing
+LP_EPOCHS = 10
+LP_LEARNING_RATE = 2e-4
+# Stage 2: Fine-Tuning
+FT_EPOCHS = 50
+FT_LEARNING_RATE = 2e-5
+FT_UNFREEZE_TOP_LAYERS = 4
 WEIGHT_DECAY = 0.01
-UNFREEZE_TOP_LAYERS = 4
-TRAIN_BATCH_SIZE = 16
+TRAIN_BATCH_SIZE = 8
 EVAL_BATCH_SIZE = 64
 EARLY_STOPPING_PATIENCE = 5
 SEED = 42
-OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-top4_seed_42_wd_0.1"
+OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-large-lpft"
 
 
 def finetune(lang_code: str):
     model_name = MODEL_CHECKPOINT.split("/")[-1].lower()
     print(f"\n{'='*50}")
-    print(f"Fine-tuning (top-{UNFREEZE_TOP_LAYERS} frozen) {model_name} on NusaX-Senti [{lang_code}]")
+    print(f"LP-FT {model_name} on NusaX-Senti [{lang_code}]")
     print(f"{'='*50}")
 
     # Load data
     data_dir = f"data/nusax_senti/{lang_code}"
-    train_df = pd.read_csv(f"{data_dir}/train_syn2.csv")
+    train_df = pd.read_csv(f"{data_dir}/syn/train_syn.csv")
     valid_df = pd.read_csv(f"{data_dir}/valid.csv")
     test_df = pd.read_csv(f"{data_dir}/test.csv")
 
@@ -71,9 +73,9 @@ def finetune(lang_code: str):
     config.num_labels = num_labels
     config.label2id = label2id
     config.id2label = id2label
-    config.hidden_dropout_prob = 0.2          # default 0.1
+    config.hidden_dropout_prob = 0.2 # default 0.1
     config.attention_probs_dropout_prob = 0.2 # default 0.1
-
+    
     from transformers import AutoModelForSequenceClassification as AutoMSC
     from collections import OrderedDict
 
@@ -88,8 +90,12 @@ def finetune(lang_code: str):
 
     del raw_model
 
+    # Hitung trainable params: encoder frozen, hanya classifier head
     total_params = sum(v.numel() for v in new_state_dict.values()) / 1e6
+    # Classifier head: hidden_size * num_labels + num_labels (weight + bias)
+    clf_params = (config.hidden_size * num_labels + num_labels) / 1e6
     print(f"Model: {model_name} (~{total_params:.0f}M total params)")
+    print(f"Trainable (clf head only): ~{clf_params*1e6:.0f} params ({clf_params/total_params*100:.2f}%)")
     print(f"CUDA: {torch.cuda.is_available()}, GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A'}")
 
     # Tokenize
@@ -112,8 +118,107 @@ def finetune(lang_code: str):
 
     output_dir = f"{OUTPUT_BASE_DIR}/{model_name}-{lang_code}"
 
-    training_args = TrainingArguments(
-        output_dir=output_dir,
+    # Custom model: bypass pooler sepenuhnya, [CLS] hidden state → Linear langsung
+    # Sesuai paper probing (Peters et al., Tenney et al.) — pooler tidak dipakai sama sekali
+    from transformers import BertModel
+    from transformers.modeling_outputs import SequenceClassifierOutput
+
+    class BertLinearProbe(torch.nn.Module):
+        """Mask-aware mean pooling → Linear (no pooler). Exclude padding tokens dari rata-rata."""
+        def __init__(self):
+            super().__init__()
+            self.config = config  # expose config for HuggingFace Trainer
+            self.bert = BertModel(config, add_pooling_layer=False)
+            self.classifier = torch.nn.Linear(config.hidden_size, num_labels)
+
+        def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, labels=None, **kwargs):
+            out = self.bert(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
+            mask = attention_mask.unsqueeze(-1).float()
+            pooled = (out.last_hidden_state * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+            logits = self.classifier(pooled)
+            loss = torch.nn.CrossEntropyLoss()(logits, labels) if labels is not None else None
+            return SequenceClassifierOutput(loss=loss, logits=logits)
+
+    # ── Stage 1: Linear Probing (freeze all BERT, train head only) ──
+    print(f"\n--- Stage 1: Linear Probing (no pooler, head only, LR={LP_LEARNING_RATE}) ---")
+
+    _fixed_state_dict = {k: v.clone() for k, v in new_state_dict.items()}
+
+    def model_init_lp():
+        m = BertLinearProbe()
+        m.load_state_dict(_fixed_state_dict, strict=False)  # load encoder/emb, skip pooler+clf keys
+        for param in m.bert.parameters():
+            param.requires_grad = False
+        trainable = sum(p.numel() for p in m.parameters() if p.requires_grad)
+        frozen   = sum(p.numel() for p in m.parameters() if not p.requires_grad)
+        print(f"[LP] Pooler bypassed | Trainable (Linear only): {trainable:,} | Frozen: {frozen:,}")
+        return m
+
+    lp_args = TrainingArguments(
+        output_dir=f"{output_dir}/lp",
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        logging_strategy="epoch",
+        per_device_train_batch_size=TRAIN_BATCH_SIZE,
+        per_device_eval_batch_size=EVAL_BATCH_SIZE,
+        optim="adamw_torch_fused",
+        learning_rate=LP_LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
+        num_train_epochs=LP_EPOCHS,
+        save_total_limit=1,
+        load_best_model_at_end=True,
+        metric_for_best_model="loss",
+        bf16=torch.cuda.is_available(),
+        report_to="none",
+        seed=SEED,
+        data_seed=SEED,
+    )
+
+    lp_trainer = Trainer(
+        model_init=model_init_lp,
+        args=lp_args,
+        train_dataset=tokenized_dataset["train"],
+        eval_dataset=tokenized_dataset["validation"],
+        processing_class=tokenizer,
+        data_collator=data_collator,
+        compute_metrics=compute_metrics,
+    )
+
+    lp_trainer.train()
+    lp_val = lp_trainer.evaluate(tokenized_dataset["validation"])
+    print(f"[LP] Best val F1: {lp_val['eval_f1']:.4f}")
+
+    # Save LP state dict for Stage 2
+    lp_state_dict = {k: v.clone() for k, v in lp_trainer.model.state_dict().items()}
+    lp_history = lp_trainer.state.log_history
+
+    del lp_trainer
+    torch.cuda.empty_cache()
+
+    # ── Stage 2: Fine-Tuning (unfreeze top layers, low LR) ──
+    print(f"\n--- Stage 2: Fine-Tuning (top-{FT_UNFREEZE_TOP_LAYERS} layers, LR={FT_LEARNING_RATE}) ---")
+
+    def model_init_ft():
+        m = BertLinearProbe()
+        m.load_state_dict(lp_state_dict)  # same architecture, strict load
+        n_layers = len(m.bert.encoder.layer)
+        freeze_until = n_layers - FT_UNFREEZE_TOP_LAYERS
+
+        for param in m.bert.embeddings.parameters():
+            param.requires_grad = False
+        for i, layer in enumerate(m.bert.encoder.layer):
+            for param in layer.parameters():
+                param.requires_grad = (i >= freeze_until)
+        # classifier head: always trainable (no pooler)
+
+        trainable = sum(p.numel() for p in m.parameters() if p.requires_grad)
+        frozen   = sum(p.numel() for p in m.parameters() if not p.requires_grad)
+        print(f"[FT] Frozen: 0-{freeze_until-1} | Trainable: {freeze_until}-{n_layers-1} + head (no pooler)")
+        print(f"[FT] Trainable: {trainable:,} | Frozen: {frozen:,}")
+        return m
+
+    ft_args = TrainingArguments(
+        output_dir=f"{output_dir}/ft",
         eval_strategy="epoch",
         save_strategy="epoch",
         logging_strategy="epoch",
@@ -121,42 +226,21 @@ def finetune(lang_code: str):
         per_device_eval_batch_size=EVAL_BATCH_SIZE,
         optim="adamw_torch_fused",
         # warmup_ratio=0.1,
-        learning_rate=LEARNING_RATE,
+        learning_rate=FT_LEARNING_RATE,
         weight_decay=WEIGHT_DECAY,
-        num_train_epochs=NUM_TRAIN_EPOCHS,
+        num_train_epochs=FT_EPOCHS,
         save_total_limit=3,
         load_best_model_at_end=True,
-        metric_for_best_model="f1",
+        metric_for_best_model="loss",
         bf16=torch.cuda.is_available(),
         report_to="none",
         seed=SEED,
         data_seed=SEED,
     )
 
-    _fixed_state_dict = {k: v.clone() for k, v in new_state_dict.items()}
-
-    def model_init():
-        m = AutoMSC.from_config(config)
-        m.load_state_dict(_fixed_state_dict, strict=False)
-        n_layers = len(m.bert.encoder.layer)
-        freeze_until = n_layers - UNFREEZE_TOP_LAYERS  # freeze layers 0..(n-5)
-
-        for param in m.bert.embeddings.parameters():
-            param.requires_grad = False
-        for i, layer in enumerate(m.bert.encoder.layer):
-            for param in layer.parameters():
-                param.requires_grad = (i >= freeze_until)
-        # bert.pooler + classifier head: always trainable
-
-        trainable = sum(p.numel() for p in m.parameters() if p.requires_grad)
-        frozen   = sum(p.numel() for p in m.parameters() if not p.requires_grad)
-        print(f"  Frozen: 0-{freeze_until-1} | Trainable: {freeze_until}-{n_layers-1} + pooler + head")
-        print(f"  Trainable: {trainable:,} | Frozen: {frozen:,}")
-        return m
-
     trainer = Trainer(
-        model_init=model_init,
-        args=training_args,
+        model_init=model_init_ft,
+        args=ft_args,
         train_dataset=tokenized_dataset["train"],
         eval_dataset=tokenized_dataset["validation"],
         processing_class=tokenizer,
@@ -168,20 +252,22 @@ def finetune(lang_code: str):
     trainer.train()
 
     trainer.remove_callback(EarlyStoppingCallback)
-    train_history = trainer.state.log_history
+    ft_history = trainer.state.log_history
+    train_history = {"lp": lp_history, "ft": ft_history}
 
+    # Evaluate train set
     train_results = trainer.evaluate(tokenized_dataset["train"], metric_key_prefix="train")
-    print(f"\nTrain Results [{lang_code}] ({model_name}, top-{UNFREEZE_TOP_LAYERS}):")
+    print(f"\nTrain Results [{lang_code}] ({model_name}, LP-FT):")
     print(f"Train F1:  {train_results['train_f1']:.4f}")
     print(f"Train Acc: {train_results['train_accuracy']:.4f}")
 
     val_results = trainer.evaluate(tokenized_dataset["validation"], metric_key_prefix="validation")
-    print(f"\nValidation Results [{lang_code}] ({model_name}, top-{UNFREEZE_TOP_LAYERS}):")
+    print(f"\nValidation Results [{lang_code}] ({model_name}, LP-FT):")
     print(f"Val F1:  {val_results['validation_f1']:.4f}")
     print(f"Val Acc: {val_results['validation_accuracy']:.4f}")
 
     test_results = trainer.evaluate(tokenized_dataset["test"])
-    print(f"\nTest Results [{lang_code}] ({model_name}, top-{UNFREEZE_TOP_LAYERS}):")
+    print(f"\nTest Results [{lang_code}] ({model_name}, LP-FT):")
     print(f"F1 (macro): {test_results['eval_f1']:.4f}")
     print(f"Accuracy:   {test_results['eval_accuracy']:.4f}")
 
@@ -213,7 +299,7 @@ if __name__ == "__main__":
         result = finetune(lang)
         all_results[lang] = result
 
-    print(f"\nSUMMARY: {model_name} Top-{UNFREEZE_TOP_LAYERS} Fine-Tune")
+    print(f"\nSUMMARY: {model_name} LP-FT")
     for lang, res in all_results.items():
         train_f1 = res["train_results"]["train_f1"] * 100
         val_f1   = res["val_results"]["validation_f1"] * 100
@@ -223,18 +309,20 @@ if __name__ == "__main__":
     summary_path = f"{OUTPUT_BASE_DIR}/results_summary.json"
     summary = {
         "hyperparams": {
-            "method": f"top-{UNFREEZE_TOP_LAYERS}-frozen",
+            "method": "LP-FT",
             "model_checkpoint": MODEL_CHECKPOINT,
             "target_langs": TARGET_LANGS,
             "input_max_length": INPUT_MAX_LENGTH,
-            "num_train_epochs": NUM_TRAIN_EPOCHS,
-            "learning_rate": LEARNING_RATE,
+            "lp_epochs": LP_EPOCHS,
+            "lp_learning_rate": LP_LEARNING_RATE,
+            "ft_epochs": FT_EPOCHS,
+            "ft_learning_rate": FT_LEARNING_RATE,
+            "ft_unfreeze_top_layers": FT_UNFREEZE_TOP_LAYERS,
+            # "ft_warmup_ratio": 0.1,
             "weight_decay": WEIGHT_DECAY,
-            "unfreeze_top_layers": UNFREEZE_TOP_LAYERS,
             "train_batch_size": TRAIN_BATCH_SIZE,
             "eval_batch_size": EVAL_BATCH_SIZE,
             "early_stopping_patience": EARLY_STOPPING_PATIENCE,
-            "warmup_ratio": 0.1,
             "hidden_dropout_prob": 0.2,
             "attention_probs_dropout_prob": 0.2,
             "seed": SEED,

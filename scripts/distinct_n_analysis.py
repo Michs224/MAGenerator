@@ -10,6 +10,9 @@ Distinct-N = |unique n-grams| / |total n-grams|. Higher = more diverse.
 
 Caveat: Distinct-N size-sensitive (larger corpus -> lower Distinct-N karena lebih
 banyak chance repeating). Need apples-to-apples sample size untuk fair comparison.
+
+Auto-save: hasil output di-tee ke `outputs/analysis_logs/distinct_n_analysis.txt`
+agar bisa dilihat lagi tanpa re-run.
 """
 import sys
 import re
@@ -20,6 +23,24 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding='utf-8')
 
 ROOT = Path('y:/Michh/Python/Projects/MAGenerator')
+
+# ── Auto-save output to file (Tee stdout) ──
+LOG_PATH = ROOT / 'outputs/analysis_logs/distinct_n_analysis.txt'
+LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+_log_file = open(LOG_PATH, 'w', encoding='utf-8')
+sys.stdout = _Tee(sys.stdout, _log_file)
+print(f"[Auto-save] Output di-tee ke: {LOG_PATH}\n")
 
 
 def tokenize(text):

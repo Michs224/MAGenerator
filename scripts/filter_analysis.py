@@ -9,6 +9,9 @@ Menjalankan analisis empiris berbagai filter dari literature:
 6. Vocabulary entropy (Shannon)
 
 Output: print ke console untuk evaluasi cepat.
+
+Auto-save: hasil output di-tee ke `outputs/analysis_logs/filter_analysis.txt`
+agar bisa dilihat lagi tanpa re-run.
 """
 import sys
 import re
@@ -24,6 +27,24 @@ SEED_TRAIN = ROOT / 'data/nusax_senti/jav/train.csv'
 SEED_TEST  = ROOT / 'data/nusax_senti/jav/test.csv'
 SEED_VALID = ROOT / 'data/nusax_senti/jav/valid.csv'
 SYN_FULL   = ROOT / 'outputs/synthetic/jav/synthetic.csv'
+
+# ── Auto-save output to file (Tee stdout) ──
+LOG_PATH = ROOT / 'outputs/analysis_logs/filter_analysis.txt'
+LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+_log_file = open(LOG_PATH, 'w', encoding='utf-8')
+sys.stdout = _Tee(sys.stdout, _log_file)
+print(f"[Auto-save] Output di-tee ke: {LOG_PATH}\n")
 
 # Tokenization (consistent across analyses)
 def tokenize(text):

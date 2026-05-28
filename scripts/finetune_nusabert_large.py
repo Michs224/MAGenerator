@@ -14,9 +14,9 @@ from transformers import (
 
 # Config — NusaBERT-large hyperparams sesuai paper Table 4 + GitHub run_classification.sh
 MODEL_CHECKPOINT = "LazarusNLP/NusaBERT-large"
-# TARGET_LANGS = ["jav", "sun", "ace", "bjn"]
+TARGET_LANGS = ["mad", "ban", "bjn", "jav", "ace", "min", "sun"]
 # TARGET_LANGS = ["ace", "ban", "bbc", "bjn", "bug", "eng", "ind", "jav", "mad", "min", "nij", "sun"]
-TARGET_LANGS = ["jav"]
+# TARGET_LANGS = ["jav"]
 INPUT_MAX_LENGTH = 128
 NUM_TRAIN_EPOCHS = 100
 LEARNING_RATE = 2e-5       # large = 2e-5 (base = 1e-5)
@@ -26,7 +26,7 @@ EVAL_BATCH_SIZE = 64      # paper = 64, turunkan untuk VRAM
 # GRADIENT_ACCUMULATION_STEPS = 4   # effective batch = 4 * 4 = 16 (sama dengan paper)
 EARLY_STOPPING_PATIENCE = 5
 SEED = 42
-OUTPUT_BASE_DIR = "outputs/nusabert-sentiment_seed_42_train"
+OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-large"
 
 
 def finetune(lang_code: str):
@@ -37,7 +37,7 @@ def finetune(lang_code: str):
 
     # Load data
     data_dir = f"data/nusax_senti/{lang_code}"
-    train_df = pd.read_csv(f"{data_dir}/train_syn3.csv")
+    train_df = pd.read_csv(f"{data_dir}/syn/train_syn.csv")
     valid_df = pd.read_csv(f"{data_dir}/valid.csv")
     test_df = pd.read_csv(f"{data_dir}/test.csv")
 
@@ -225,7 +225,7 @@ if __name__ == "__main__":
         paper_f1 = paper_scores.get(lang, 0)
         print(f"  {lang}: train={train_f1:.2f}% val={val_f1:.2f}% test={test_f1:.2f}% (paper: {paper_f1}%)")
 
-    summary_path = "outputs/results_summary.json"
+    summary_path = f"{OUTPUT_BASE_DIR}/results_summary.json"
     summary = {
         "hyperparams": {
             "model_checkpoint": MODEL_CHECKPOINT,
@@ -237,9 +237,9 @@ if __name__ == "__main__":
             "train_batch_size": TRAIN_BATCH_SIZE,
             "eval_batch_size": EVAL_BATCH_SIZE,
             "early_stopping_patience": EARLY_STOPPING_PATIENCE,
-            "warmup_ratio": 0.1,
-            "label_smoothing_factor": 0.1,
-            "max_grad_norm": 1.0,
+            # "warmup_ratio": 0.1,
+            # "label_smoothing_factor": 0.1,
+            # "max_grad_norm": 1.0,
             "seed": SEED,
         },
         "results": {

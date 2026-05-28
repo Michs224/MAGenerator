@@ -5,6 +5,9 @@ Output:
 2. Label distribution
 3. Vocab overlap matrix
 4. Identify specific quality issues di synthetic
+
+Auto-save: hasil output di-tee ke `outputs/analysis_logs/dataset_relationship_analysis.txt`
+agar bisa dilihat lagi tanpa re-run.
 """
 import sys
 import re
@@ -17,10 +20,28 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 ROOT = Path('y:/Michh/Python/Projects/MAGenerator')
 SEED_TRAIN = ROOT / 'data/nusax_senti/jav/train.csv'
-TRAIN_SYN3 = ROOT / 'data/nusax_senti/jav/train_syn3.csv'
+TRAIN_AUG  = ROOT / 'data/nusax_senti/jav/syn/train_syn.csv'    # seed + synthetic (augmented)
 SEED_VALID = ROOT / 'data/nusax_senti/jav/valid.csv'
 SEED_TEST  = ROOT / 'data/nusax_senti/jav/test.csv'
 SYN_ONLY   = ROOT / 'outputs/synthetic/jav/synthetic.csv'
+
+# ── Auto-save output to file (Tee stdout) ──
+LOG_PATH = ROOT / 'outputs/analysis_logs/dataset_relationship_analysis.txt'
+LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+_log_file = open(LOG_PATH, 'w', encoding='utf-8')
+sys.stdout = _Tee(sys.stdout, _log_file)
+print(f"[Auto-save] Output di-tee ke: {LOG_PATH}\n")
 
 def tokenize(text):
     return re.findall(r'\b\w+\b', str(text).lower())
@@ -46,7 +67,7 @@ def length_stats(texts, name):
 
 # Load
 train_seed = pd.read_csv(SEED_TRAIN)
-train_aug  = pd.read_csv(TRAIN_SYN3)
+train_aug  = pd.read_csv(TRAIN_AUG)
 valid      = pd.read_csv(SEED_VALID)
 test       = pd.read_csv(SEED_TEST)
 syn_only   = pd.read_csv(SYN_ONLY)
@@ -55,7 +76,7 @@ print("="*70)
 print("DATASET SIZES")
 print("="*70)
 print(f"  Train (seed only)     : {len(train_seed)}")
-print(f"  Train (aug=syn3)      : {len(train_aug)}  (+{len(train_aug)-len(train_seed)} synthetic)")
+print(f"  Train (aug=seed+syn)  : {len(train_aug)}  (+{len(train_aug)-len(train_seed)} synthetic)")
 print(f"  Synthetic only        : {len(syn_only)}")
 print(f"  Validation            : {len(valid)}")
 print(f"  Test                  : {len(test)}")

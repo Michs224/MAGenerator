@@ -18,7 +18,7 @@ load_dotenv()
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from NusaSynth.config import BATCH_SIZE, DATA_DIR, DEDUP_THRESHOLD, LABEL_ORDER, LANG_NAMES, OUTPUT_DIR, SENTENCES_PER_SEED, TARGET_LANG
+from NusaSynth.config import BATCH_SIZE, DATA_DIR, DEDUP_THRESHOLD, LABEL_ORDER, LANG_NAMES, OUTPUT_DIR, SENTENCES_PER_SEED, TARGET_LANGS
 from NusaSynth.graph import build_pipeline
 from NusaSynth.state import SentenceRecord
 from NusaSynth.tools import jaccard_bigram
@@ -95,8 +95,10 @@ def save_results(
     output_dir: Path,
     batch_idx: int | None = None,
     batch_seed_ids: list[int] | None = None,
-):
+) -> tuple[int, int]:
     """Save accepted → CSV, full state log → JSONL (accepted + discarded + retried).
+
+    Returns (kept_count, dedup_filtered_count) — actual yield post cross-batch dedup.
 
     Cross-batch Jaccard dedup: new accepted sentences are checked against
     existing CSV rows. Near-duplicates are logged as 'dedup_filtered'.
@@ -123,7 +125,7 @@ def save_results(
                     "expected_sentences": len(batch_seed_ids) * SENTENCES_PER_SEED,
                 }, ensure_ascii=False) + "\n")
             print(f"  BATCH_FAILED: lang={lang} label={label} batch={batch_idx} seeds={batch_seed_ids}")
-        return
+        return 0, 0
 
     csv_path = lang_dir / "synthetic.csv"
 
@@ -163,19 +165,37 @@ def save_results(
                 "label": label,
             })
 
-    # Write log (all outcomes)
+    # Write log (all outcomes, sorted by sid for chronological order)
+    all_logs = (
+        [{**dict(s), "outcome": "accepted"} for s in kept]
+        + [{**dict(s), "outcome": "dedup_filtered"} for s in filtered]
+        + [{**dict(s), "outcome": "discarded"} for s in discarded]
+        + [{**dict(s), "outcome": "retried"} for s in retried]
+    )
+    all_logs.sort(key=lambda r: r["sid"])
+
     with open(log_path, "a", encoding="utf-8") as f:
-        for sent in kept:
-            f.write(json.dumps({**dict(sent), "outcome": "accepted"}, ensure_ascii=False) + "\n")
-        for sent in filtered:
-            f.write(json.dumps({**dict(sent), "outcome": "dedup_filtered"}, ensure_ascii=False) + "\n")
-        for sent in discarded:
-            f.write(json.dumps({**dict(sent), "outcome": "discarded"}, ensure_ascii=False) + "\n")
-        for sent in retried:
-            f.write(json.dumps({**dict(sent), "outcome": "retried"}, ensure_ascii=False) + "\n")
+        for entry in all_logs:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    return len(kept), len(filtered)
 
 
-def run_language(lang: str, labels: list[str] | None = None):
+def run_language(lang: str | list[str], labels: list[str] | None = None):
+    if isinstance(lang, str):
+        langs = [lang]
+    else:
+        langs = list(lang)
+
+    for idx, single_lang in enumerate(langs):
+        if len(langs) > 1:
+            print(f"\n{'#'*60}")
+            print(f"# Bahasa {idx + 1}/{len(langs)}: {single_lang}")
+            print(f"{'#'*60}")
+        _run_single_language(single_lang, labels)
+
+
+def _run_single_language(lang: str, labels: list[str] | None = None):
     lang_name = LANG_NAMES[lang]
     print(f"\n{'='*60}")
     print(f"NusaSynth: {lang_name} ({lang})")
@@ -195,6 +215,7 @@ def run_language(lang: str, labels: list[str] | None = None):
     pipeline = build_pipeline()
     target_labels = labels or LABEL_ORDER
     total_accepted = 0
+    total_dedup_filtered = 0
     total_discarded = 0
 
     for label in target_labels:
@@ -226,17 +247,19 @@ def run_language(lang: str, labels: list[str] | None = None):
             retried = result.get("all_retried", [])
             print(f"  -> {len(accepted)} diterima, {len(discarded)} dibuang, {len(retried)} diretry")
 
-            save_results(
+            kept_count, dedup_count = save_results(
                 lang, label, accepted, discarded, retried, OUTPUT_DIR,
                 batch_idx=batch_idx,
                 batch_seed_ids=[s["id"] for s in batch],
             )
-            total_accepted += len(accepted)
+            total_accepted += kept_count
+            total_dedup_filtered += dedup_count
             total_discarded += len(discarded)
 
-    print(f"\n{lang_name} selesai: {total_accepted} diterima, {total_discarded} dibuang")
+    print(f"\n{lang_name} selesai: {total_accepted} diterima, "
+          f"{total_dedup_filtered} dedup-filtered, {total_discarded} dibuang")
     print(f"Disimpan ke: {OUTPUT_DIR / lang / 'synthetic.csv'}")
 
 
 if __name__ == "__main__":
-    run_language(TARGET_LANG)
+    run_language(TARGET_LANGS)
