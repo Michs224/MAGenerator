@@ -197,6 +197,8 @@ outputs/
 results/
 tmp_pdf/
 .playwright-mcp/
+*_tmp.csv
+*pkl
 
 # Downloaded datasets (rebuild-able from HuggingFace)
 data/nusax_senti/

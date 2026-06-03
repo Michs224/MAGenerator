@@ -19,7 +19,8 @@ from peft import LoraConfig, get_peft_model
 # Trainable: ~2.4M (vs top-4's 398K, 6x more) but still <1% of model.
 
 MODEL_CHECKPOINT = "LazarusNLP/NusaBERT-large"
-TARGET_LANGS = ["jav", "bug", "nij", "ace", "ban", "bbc", "bjn", "eng", "ind", "mad", "min", "sun"]
+# TARGET_LANGS = ["jav", "bug", "nij", "ace", "ban", "bbc", "bjn", "eng", "ind", "mad", "min", "sun"]
+TARGET_LANGS = ["ace", "ban", "bbc", "bjn", "bug", "eng", "ind", "jav", "mad", "min", "nij", "sun"]
 # TARGET_LANGS = ["bjn", "bug", "nij"]
 INPUT_MAX_LENGTH = 128
 LP_EPOCHS = 15  # R14 v2 winning longer probe
@@ -30,14 +31,14 @@ LORA_ALL_LAYERS = True   # ABLATION: True=all 24 layers, False=top-4 only
 WEIGHT_DECAY = 0.05
 TRAIN_BATCH_SIZE = 8
 EVAL_BATCH_SIZE = 64
-EARLY_STOPPING_PATIENCE = 5
+EARLY_STOPPING_PATIENCE = 3
 LORA_R = 16
 LORA_ALPHA = 32
 LORA_DROPOUT = 0.1
 LORA_TARGET_MODULES = ["query", "key", "value"]   # tambah "key" dari R11 v3
 SEED = 42
 USE_DORA = False   # vanilla LoRA
-OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-large-lpft-lora-alllayer-lr5e5-drop25-v2"
+OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-large-lpft-lora-alllayer-lr5e5-drop25-earlystop_3"
 
 
 def finetune(lang_code: str):

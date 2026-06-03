@@ -1,0 +1,55 @@
+SUMMARY: nusabert-large on NusaX-Senti Syn early stoping 3
+  mad: train=99.88% val=87.50% test=83.59% (paper - test set: 82.5%)
+  ban: train=100.00% val=89.60% test=84.99% (paper - test set: 82.8%)
+  bjn: train=99.83% val=89.51% test=87.88% (paper - test set: 86.5%)
+  jav: train=99.93% val=90.38% test=88.44% (paper - test set: 87.2%)
+  ace: train=99.82% val=91.08% test=81.97% (paper - test set: 81.8%)
+  min: train=99.87% val=90.19% test=86.31% (paper - test set: 83.5%)
+  sun: train=99.88% val=91.45% test=89.29% (paper - test set: 82.7%)
+
+
+SUMMARY: nusabert-base on NusaX-Senti Syn early stopping 3
+  mad: train=99.79% val=81.45% test=78.56% (paper - test set: 75.6%)
+  ban: train=99.86% val=83.11% test=80.44% (paper - test set: 78.7%)
+  bjn: train=96.19% val=86.39% test=84.29% (paper - test set: 82.4%)
+  jav: train=99.71% val=83.58% test=87.84% (paper - test set: 84.1%)
+  ace: train=100.00% val=87.81% test=80.23% (paper - test set: 76.5%)
+  min: train=98.43% val=85.41% test=85.58% (paper - test set: 80.8%)
+  sun: train=94.89% val=84.58% test=87.87% (paper - test set: 85.2%)
+
+
+
+-----------------
+
+
+SUMMARY: nusabert-large on NusaX-Senti paper early stopping 3
+  ace: train=100.00% val=83.93% test=81.52% (paper - test set: 81.8%)
+  ban: train=98.79% val=82.31% test=82.78% (paper - test set: 82.8%)
+  bbc: train=100.00% val=73.44% test=79.35% (paper - test set: 74.7%)
+  bjn: train=99.65% val=85.55% test=84.27% (paper - test set: 86.5%)
+  bug: train=100.00% val=74.73% test=75.93% (paper - test set: 73.4%)
+  eng: train=99.42% val=84.16% test=85.28% (paper - test set: 84.6%)
+  ind: train=99.60% val=91.12% test=91.12% (paper - test set: 93.3%)
+  jav: train=100.00% val=84.91% test=85.08% (paper - test set: 87.2%)
+  mad: train=95.59% val=80.30% test=79.52% (paper - test set: 82.5%)
+  min: train=99.77% val=85.34% test=84.31% (paper - test set: 83.5%)
+  nij: train=99.02% val=80.47% test=79.08% (paper - test set: 77.7%)
+  sun: train=99.83% val=86.38% test=86.93% (paper - test set: 82.7%)
+
+
+SUMMARY: nusabert-base on NusaX-Senti paper early stopping 3
+  ace: train=99.77% val=79.80% test=77.47% (paper - test set: 76.5%)
+  ban: train=90.76% val=71.70% test=75.61% (paper - test set: 78.7%)
+  bbc: train=91.03% val=67.70% test=73.96% (paper - test set: 74.0%)
+  bjn: train=90.33% val=82.16% test=81.31% (paper - test set: 82.4%)
+  bug: train=83.58% val=72.21% test=71.42% (paper - test set: 71.6%)
+  eng: train=96.98% val=84.52% test=84.92% (paper - test set: 84.1%)
+  ind: train=99.83% val=91.42% test=87.70% (paper - test set: 89.7%)
+  jav: train=97.57% val=82.03% test=83.68% (paper - test set: 84.1%)
+  mad: train=99.42% val=76.82% test=74.21% (paper - test set: 75.6%)
+  min: train=92.17% val=78.43% test=80.91% (paper - test set: 80.8%)
+  nij: train=92.11% val=70.61% test=73.39% (paper - test set: 74.9%)
+  sun: train=99.77% val=82.04% test=84.01% (paper - test set: 85.2%)
+
+
+NOTE: MEMANG KALAU BASE LEBIH TERLIHAT NINGKAT DIA KETIKA PAKAI AUGMENTED DATA NYA, DAN JUGA KALO EARLY_STOPPING 3 ITU BAIK LARGE MAUPUN BASE DIA NINGKAT JUGA SIGNIFIKAN. KALAU EARLY_STOPPING 5 ITU BARU GK BUAT BEBERAPA BAHASA JAV DAN ACE ITU DIA TURUN DIKIT JADINYA (DAN BUAT BASENYA AMAN SIH, HANYA DI LARGE)

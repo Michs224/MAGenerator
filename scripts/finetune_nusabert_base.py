@@ -12,21 +12,21 @@ from transformers import (
     EarlyStoppingCallback,
 )
 
-# Config — NusaBERT-large hyperparams sesuai paper Table 4 + GitHub run_classification.sh
-MODEL_CHECKPOINT = "LazarusNLP/NusaBERT-large"
+# Config — NusaBERT-base hyperparams sesuai paper Table 4 + GitHub run_classification.sh
+MODEL_CHECKPOINT = "LazarusNLP/NusaBERT-base"
 TARGET_LANGS = ["mad", "ban", "bjn", "jav", "ace", "min", "sun"]
 # TARGET_LANGS = ["ace", "ban", "bbc", "bjn", "bug", "eng", "ind", "jav", "mad", "min", "nij", "sun"]
 # TARGET_LANGS = ["jav"]
 INPUT_MAX_LENGTH = 128
 NUM_TRAIN_EPOCHS = 100
-LEARNING_RATE = 2e-5       # large = 2e-5 (base = 1e-5)
+LEARNING_RATE = 1e-5       # large = 2e-5 (base = 1e-5)
 WEIGHT_DECAY = 0.01
-TRAIN_BATCH_SIZE = 16        # paper = 16, -> VRAM 8GB tidak cukup → 4 + grad_accum 4
+TRAIN_BATCH_SIZE = 32        # paper = 32
 EVAL_BATCH_SIZE = 64      # paper = 64, turunkan untuk VRAM
 # GRADIENT_ACCUMULATION_STEPS = 4   # effective batch = 4 * 4 = 16 (sama dengan paper)
 EARLY_STOPPING_PATIENCE = 5 #3
 SEED = 42
-OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-large"
+OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-base"
 
 
 def finetune(lang_code: str):
@@ -223,11 +223,11 @@ if __name__ == "__main__":
         result = finetune(lang)
         all_results[lang] = result
 
-    # Paper reference (NusaBERT-large, from Table 6)
+    # Paper reference (NusaBERT-base, from Table 6)
     paper_scores = {
-        "ace": 81.8, "ban": 82.8, "bbc": 74.7, "bjn": 86.5, "bug": 73.4,
-        "eng": 84.6, "ind": 93.3, "jav": 87.2, "mad": 82.5, "min": 83.5,
-        "nij": 77.7, "sun": 82.7,
+        "ace": 76.5, "ban": 78.7, "bbc": 74.0, "bjn": 82.4, "bug": 71.6,
+        "eng": 84.1, "ind": 89.7, "jav": 84.1, "mad": 75.6, "min": 80.8,
+        "nij": 74.9, "sun": 85.2,
     }
 
     print(f"\nSUMMARY: {model_name} on NusaX-Senti")

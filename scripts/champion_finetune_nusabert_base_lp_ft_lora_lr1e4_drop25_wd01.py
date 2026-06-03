@@ -29,14 +29,14 @@ LORA_ALL_LAYERS = True   # ABLATION: True=all 24 layers, False=top-4 only
 WEIGHT_DECAY = 0.01
 TRAIN_BATCH_SIZE = 8
 EVAL_BATCH_SIZE = 64
-EARLY_STOPPING_PATIENCE = 5
+EARLY_STOPPING_PATIENCE = 3
 LORA_R = 16
 LORA_ALPHA = 32
 LORA_DROPOUT = 0.1
 LORA_TARGET_MODULES = ["query", "key", "value"]   # tambah "key" dari R11 v3
 SEED = 42
 USE_DORA = False   # vanilla LoRA
-OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-base-lpft-lora-alllayer-lr1e4-drop25-wd01"
+OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-base-lpft-lora-alllayer-lr1e4-drop25-wd01-earlystop_3"
 
 
 def finetune(lang_code: str):
