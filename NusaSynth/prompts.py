@@ -27,8 +27,8 @@ from NusaSynth.config import SENTENCES_PER_SEED
 # ── Contextualizer ─────────────────────────────────────────────────────────
 
 class VariationPlan(BaseModel):
-    strategy: str = Field(description="What to change (aspect, scenario, entity, perspective, etc.)")
-    preserve: str = Field(description="What should remain consistent with the seed (complementing the strategy)")
+    strategy: str = Field(description="What to change (aspect, scenario, entity, perspective, or how the sentiment is delivered, etc.)")
+    preserve: str = Field(description="What to keep consistent in MEANING: the seed's sentiment polarity and intensity, domain plausibility, register. NOT specific phrases to copy verbatim.")
 
 
 class SeedAnalysis(BaseModel):
@@ -78,7 +78,7 @@ class SVOutput(BaseModel):
 class LVEvaluation(BaseModel):
     idx: int = Field(description="Index of the sentence being evaluated (from input)")
     naturalness: str = Field(description="Naturalness of the text for a native speaker of the target language")
-    issues: str | None = Field(default=None, description="Linguistic issues observed (null if clean)")
+    issues: str | None = Field(default=None, description="Linguistic issues observed; omit this field if none")
     verdict: Literal["PASS", "REJECT"] = Field(description="PASS if linguistically acceptable, REJECT otherwise")
     reason: str | None = Field(default=None, description="Required if REJECT: brief explanation")
 
@@ -111,7 +111,7 @@ def build_contextualizer_messages(
 Given {len(seeds)} seed sentences from a {lang_name} sentiment dataset, analyze each and produce {SENTENCES_PER_SEED} variation plans per seed ({len(seeds) * SENTENCES_PER_SEED} total).
 
 Dataset characteristics:
-- The dataset primarily covers food and restaurant reviews, travel, telecom, shopping, services, and delivery, along with occasional everyday statements
+- Short user-generated sentiment texts (reviews, opinions, everyday statements); infer each seed's specific domain from its own text
 - Natural code-mixing with Indonesian is common
 - Casual and informal tone is common, though occasional formal phrasing may appear
 
@@ -124,13 +124,13 @@ Each plan must include:
 Rules:
 - RESPECT the domain and style of each seed
 - Prioritize variations that remain plausible for the same data source as the seed
-- You may explore adjacent domains if naturally relevant to the seed's context
+- Keep each variation within the seed's domain — do not shift to a different domain
 
 CRITICAL — APPROACH DIVERSITY:
 The {SENTENCES_PER_SEED} variations for each seed must use DIFFERENT expressive approaches. Think of them as written by different people in different situations. Across the {SENTENCES_PER_SEED} plans, vary:
 - Who is speaking and from what angle (first person experience, third person observation, advice to others, rhetorical question, comparison)
 - What aspect is the focus (product, service, atmosphere, price-value ratio, specific incident, emotional reaction)
-- How the sentiment is expressed (direct complaint, sarcasm, disappointment narrative, warning, praise story, factual observation)
+- How the sentiment surfaces (stated directly, or implied through the situation or its consequence; also sarcasm, narrative, comparison, factual observation) — across the {SENTENCES_PER_SEED} variations, avoid letting every one rely on explicit sentiment words
 
 Do NOT plan {SENTENCES_PER_SEED} sentences that all open the same way or follow the same sentence skeleton with swapped entities. Avoid templated strategy descriptions across plans."""
 
@@ -178,17 +178,18 @@ Each variation plan includes context derived from its seed:
 - domain: topic or domain to stay within
 - style: register and tone to match
 - sentiment_expression: how sentiment was expressed in the seed
-- strategy: what to change in the variation
-- preserve: what must remain consistent
+- strategy: what to change in the variation (may include how the sentiment is delivered — stated directly vs implied through the situation/consequence)
+- preserve: the sentiment/meaning to keep — NOT phrases to copy verbatim
 
 Rules:
 - Express {target_label} sentiment in {lang_name}
 - For every generated sentence, copy back the plan_id and seed_id exactly from the plan you are addressing
 - Generate ONE sentence per plan_id — every input plan_id must appear exactly once in your output
-- Honor each plan's domain, style, and sentiment_expression — these come from the seed and define the contextual envelope
-- Do NOT paraphrase the seed — create genuinely different sentences
+- Honor each plan's domain and style; the plan's strategy guides how the sentiment is delivered (which may differ from the seed's expression)
+- Preserve the seed's underlying sentiment even when it is expressed indirectly (through situation, consequence, or comparison)
+- Make each variation lexically novel, label-stable, and plausible within the seed's domain — without copying the seed's phrases verbatim
 - Match the style and tone of the seeds — your output must sound like it comes from the same data source
-- Code-mixing with Indonesian IS acceptable — the original dataset naturally contains this
+- Code-mixing with Indonesian is common here — match the seed's natural code-mixing
 - Length matching:
   * Each generated sentence should preserve its source seed's elaboration depth (judged from the seed text itself)
   * Brief seed → variations of similar brevity
@@ -288,7 +289,7 @@ For each sentence, you receive:
 
 Use Chain-of-Thought reasoning for each sentence:
 1. naturalness: Evaluate whether the text sounds like natural {lang_name}. Use GlotLID as a language-identity check (shows the detected language and how confidently). Also consider fluency, grammar, and idiomatic use.
-2. issues: Any translationese, broken grammar, or incoherent meaning? Leave null if clean.
+2. issues: Any translationese, broken grammar, or incoherent meaning? Omit this field if there are no issues.
 3. verdict: PASS or REJECT
 4. reason: required if REJECT
 

@@ -62,7 +62,7 @@ def lv_run(state: LVState) -> dict:
             for i, sent in enumerate(group)
         ]
 
-        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.3)
+        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.2)
         structured_llm = llm.with_structured_output(LVOutput)
         messages = build_lv_messages(
             seed=seed,

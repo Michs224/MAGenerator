@@ -14,7 +14,8 @@ from transformers import (
 
 # Config — NusaBERT-large hyperparams sesuai paper Table 4 + GitHub run_classification.sh
 MODEL_CHECKPOINT = "LazarusNLP/NusaBERT-large"
-TARGET_LANGS = ["mad", "ban", "bjn", "jav", "ace", "min", "sun"]
+TARGET_LANGS = ["ace", "jav", "mad", "ban", "bjn", "min", "sun"]
+# TARGET_LANGS = ["mad", "ban", "bjn", "jav", "ace", "min", "sun"]
 # TARGET_LANGS = ["ace", "ban", "bbc", "bjn", "bug", "eng", "ind", "jav", "mad", "min", "nij", "sun"]
 # TARGET_LANGS = ["jav"]
 INPUT_MAX_LENGTH = 128
@@ -26,8 +27,7 @@ EVAL_BATCH_SIZE = 64      # paper = 64, turunkan untuk VRAM
 # GRADIENT_ACCUMULATION_STEPS = 4   # effective batch = 4 * 4 = 16 (sama dengan paper)
 EARLY_STOPPING_PATIENCE = 5 #3
 SEED = 42
-OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-large"
-
+OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-large-syn-42-v2"
 
 def finetune(lang_code: str):
     model_name = MODEL_CHECKPOINT.split("/")[-1].lower()
@@ -37,7 +37,7 @@ def finetune(lang_code: str):
 
     # Load data
     data_dir = f"data/nusax_senti/{lang_code}"
-    train_df = pd.read_csv(f"{data_dir}/train.csv")
+    train_df = pd.read_csv(f"{data_dir}/syn/train_syn.csv")
     valid_df = pd.read_csv(f"{data_dir}/valid.csv")
     test_df = pd.read_csv(f"{data_dir}/test.csv")
 
@@ -157,6 +157,22 @@ def finetune(lang_code: str):
 
     trainer.train()
 
+    # Early-stop diagnostics — dihitung SEBELUM post-hoc evaluate() mengontaminasi
+    # log_history (evaluate(test) pakai prefix default "eval" → ikut menambah entri
+    # eval_f1 = skor TEST). Di titik ini log_history hanya berisi eval val per-epoch.
+    # Model yang di-restore = checkpoint best-epoch (load_best_model_at_end=True);
+    # tie-break Trainer (strict >) = epoch paling awal, sama dengan max() Python.
+    _evals = [e for e in trainer.state.log_history if "eval_f1" in e]
+    _best = max(_evals, key=lambda e: e["eval_f1"]) if _evals else {}
+    stop_epoch = round(_evals[-1]["epoch"]) if _evals else None
+    best_epoch = round(_best["epoch"]) if _evals else None
+    best_val_f1 = _best.get("eval_f1") if _evals else None
+    epochs_past_best = (stop_epoch - best_epoch) if _evals else None
+    print(f"\nEarly-stop diagnostics [{lang_code}]:")
+    print(f"  Stopped at epoch:    {stop_epoch} (patience={EARLY_STOPPING_PATIENCE})")
+    print(f"  Best/restored epoch: {best_epoch} (val_f1={best_val_f1})")
+    print(f"  Epochs past best:    {epochs_past_best}")
+
     # Remove EarlyStoppingCallback before post-training evals to suppress false warnings
     # (callback looks for "eval_f1" but post-training prefix is "train"/"validation")
     trainer.remove_callback(EarlyStoppingCallback)
@@ -212,7 +228,8 @@ def finetune(lang_code: str):
     if deleted:
         print(f"Deleted {deleted} checkpoint dirs in {output_dir}")
 
-    return {"train_results": train_results, "val_results": val_results, "test_results": test_results, "train_history": train_history}
+    return {"train_results": train_results, "val_results": val_results, "test_results": test_results, "train_history": train_history,
+            "stop_epoch": stop_epoch, "best_epoch": best_epoch, "best_val_f1": best_val_f1, "epochs_past_best": epochs_past_best}
 
 
 if __name__ == "__main__":
@@ -236,7 +253,7 @@ if __name__ == "__main__":
         val_f1   = res["val_results"]["validation_f1"] * 100
         test_f1  = res["test_results"]["eval_f1"] * 100
         paper_f1 = paper_scores.get(lang, 0)
-        print(f"  {lang}: train={train_f1:.2f}% val={val_f1:.2f}% test={test_f1:.2f}% (paper - test set: {paper_f1}%)")
+        print(f"  {lang}: train={train_f1:.2f}% val={val_f1:.2f}% test={test_f1:.2f}% (paper - test set: {paper_f1}%) | stop@ep{res['stop_epoch']} best@ep{res['best_epoch']}")
 
     summary_path = f"{OUTPUT_BASE_DIR}/results_summary.json"
     summary = {
@@ -263,6 +280,10 @@ if __name__ == "__main__":
                 "val_accuracy": res["val_results"]["validation_accuracy"],
                 "test_f1": res["test_results"]["eval_f1"],
                 "test_accuracy": res["test_results"]["eval_accuracy"],
+                "stop_epoch": res["stop_epoch"],
+                "best_epoch": res["best_epoch"],
+                "best_val_f1": res["best_val_f1"],
+                "epochs_past_best": res["epochs_past_best"],
             }
             for lang, res in all_results.items()
         },
