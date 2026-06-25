@@ -12,7 +12,7 @@ model (model.safetensors), SISAIN config.json + tokenizer + training_args.bin +
 train_history.json + results_summary.json (persis struktur folder nusabert-sentiment-large).
 FT = referensi, nggak di-deploy, jadi bobot nggak perlu disimpan.
 
-Jalankan dari root:  uv run python scripts/p0_ft_multiseed.py
+Jalankan dari root:  uv run python scripts/p0_multiseed/p0_ft_multiseed.py
 """
 import os
 import gc

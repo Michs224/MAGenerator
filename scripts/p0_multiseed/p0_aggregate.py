@@ -9,7 +9,7 @@ seleksi sebenarnya — di sini dua-duanya ditampilkan). Single-seed FT bjn=86.76
 upper-tail; pembanding adil = FT mean.
 
 Jalankan setelah p0_ft_multiseed.py + p0_champion_multiseed.py selesai:
-  uv run python scripts/p0_aggregate.py
+  uv run python scripts/p0_multiseed/p0_aggregate.py
 """
 import os
 import json
@@ -165,6 +165,22 @@ def main():
     else:
         print("  (belum ada run champion)")
 
+    # ---- Opsional: perbandingan DoRA (kalau folder p0-champion-dora-multiseed ada) ----
+    dora_runs = load_runs({s: f"outputs/p0-champion-dora-multiseed/seed_{s}" for s in [42, 0, 1, 2, 3]})
+    dora_rows = {}
+    if dora_runs:
+        print(f"\n[DoRA] vs FT vs vanilla-CH (scope, DoRA mean seed {sorted(dora_runs)}):")
+        print(f"{'lang':5}| {'FT':7} {'CH':7} {'DoRA':7} {'DoRA-FT':8} {'DoRA-CH':8} {'DoRA gap':9}")
+        for lang in SCOPE:
+            ft_m = msn(collect(ft_runs, lang, "test_f1"))[0]
+            ch_m = msn(collect(ch_runs, lang, "test_f1"))[0]
+            do = msn(collect(dora_runs, lang, "test_f1"))
+            do_gap = msn(collect(dora_runs, lang, "gap"))[0]
+            mark = " *" if lang in ("ban", "bjn") else "  "
+            print(f"{lang:5}|{mark}{ft_m:6.2f} {ch_m:7.2f} {do[0]:7.2f} {do[0]-ft_m:+8.2f} {do[0]-ch_m:+8.2f} {do_gap:9.2f}")
+            dora_rows[lang] = {"dora_test_mean": do[0], "dora_test_std": do[1], "dora_test_n": do[2],
+                               "dora_gap_mean": do_gap, "vs_ft": do[0] - ft_m, "vs_ch": do[0] - ch_m}
+
     os.makedirs(OUT_DIR, exist_ok=True)
     out_path = os.path.join(OUT_DIR, "p0_summary.json")
     with open(out_path, "w") as f:
@@ -172,6 +188,7 @@ def main():
             "seeds_requested": SEEDS,
             "ft_seeds_found": sorted(ft_runs), "champion_seeds_found": sorted(ch_runs),
             "scope": SCOPE, "rows": rows, "deploy_seed_selection": deploy,
+            "dora_seeds_found": sorted(dora_runs), "dora_rows": dora_rows,
         }, f, indent=2)
     print(f"\nSaved -> {out_path}")
 

@@ -13,7 +13,7 @@ test/val (.npy, buat kalibrasi/temperature-scaling nanti tanpa train ulang).
   KEEP_WEIGHTS = "all"         -> simpan bobot best/ tiap seed (sesuai instruksi; ~16GB/seed)
   KEEP_WEIGHTS = "deploy_only" -> simpan bobot best/ HANYA DEPLOY_SEED; seed lain cukup logits
 
-Jalankan dari root:  uv run python scripts/p0_champion_multiseed.py
+Jalankan dari root:  uv run python scripts/p0_multiseed/p0_champion_multiseed.py
 """
 import os
 import gc
@@ -299,9 +299,13 @@ def run_seed(seed: int):
     print(f"\n[seed {seed}] summary -> {summary_path}")
 
 
-if __name__ == "__main__":
+def main():
     print(f"CUDA: {torch.cuda.is_available()} | GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A'}")
-    print(f"P0 champion multi-seed | seeds={SEEDS} (42 di-reuse) | langs={len(TARGET_LANGS)} | KEEP_WEIGHTS={KEEP_WEIGHTS}")
+    print(f"P0 champion multi-seed | seeds={SEEDS} (42 di-reuse) | langs={len(TARGET_LANGS)} | USE_DORA={USE_DORA} | KEEP_WEIGHTS={KEEP_WEIGHTS} | out={OUTPUT_ROOT}")
     for seed in SEEDS:
         run_seed(seed)
     print("\nSELESAI. Lanjut: p0_aggregate.py")
+
+
+if __name__ == "__main__":
+    main()
