@@ -44,7 +44,7 @@ Rejected samples loop back to Generator with diagnostic feedback (max 2 retries)
 - **Location:** `data/nusax_senti/<lang_code>/{train,valid,test}.csv`
 - **Format:** CSV with `id`, `text`, `label` (negative/neutral/positive)
 - **Per language:** 500 train, 100 valid, 400 test
-- **Synthetic output:** `outputs/synthetic/<lang>/synthetic.csv` + `pipeline_log.jsonl` (full audit trail)
+- **Synthetic output (folder-per-run):** `outputs/synthetic/<run_id>/<lang>/synthetic.csv` + `pipeline_log.jsonl` (full audit trail). Token usage: `outputs/usage/<run_id>/<lang>.jsonl`. `<run_id>` = timestamp mulai run. Reader pakai `NusaSynth.config.synthetic_dir(lang)` (resolve latest run, atau pin via env `NUSASYNTH_RUN_ID`).
 
 ## Project Structure
 
@@ -60,12 +60,14 @@ MAGenerator/
 │   ├── run_pipeline.py     # Entry point: per-language loop + save_results (cross-batch dedup)
 │   ├── state.py            # BatchState TypedDict + SentenceRecord
 │   ├── tools.py            # jaccard_bigram + helpers
+│   ├── usage_tracker.py    # LLM token usage tracker (folder-per-run usage_log)
 │   └── document/           # Thesis proposal PDF + DOCX
 ├── agent_doc/              # Design docs, justifications, evaluation strategy (see project_navigation memory)
 ├── notebook/               # Jupyter notebooks (analysis, evaluation, post-run check)
 ├── scripts/                # Standalone scripts (fine-tune NusaBERT, analysis utilities)
 ├── outputs/
-│   ├── synthetic/          # Generated synthetic data per language
+│   ├── synthetic/<run_id>/<lang>/   # Generated synthetic (folder-per-run): synthetic.csv + pipeline_log.jsonl
+│   ├── usage/<run_id>/<lang>.jsonl  # LLM token usage per run (input/output/reasoning)
 │   └── nusabert-sentiment_seed_42/  # Fine-tuned NusaBERT for SV signal
 ├── data/nusax_senti/       # NusaX-Senti dataset per language
 ├── models/                 # Pre-trained model weights (GlotLID etc.)

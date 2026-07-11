@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from NusaSynth.config import DEDUP_THRESHOLD, GEMINI_MODEL, MAX_RETRY, PARSE_MAX_RETRY
+from NusaSynth.config import DEDUP_THRESHOLD, GEMINI_LOCATION, GEMINI_MODEL, GEMINI_PROJECT, GEMINI_USE_VERTEXAI, MAX_RETRY, PARSE_MAX_RETRY
 from NusaSynth.prompts import (
     ContextualizerOutput,
     GeneratorOutput,
@@ -16,11 +16,15 @@ from NusaSynth.prompts import (
 )
 from NusaSynth.state import BatchState, SentenceRecord, make_sentence
 from NusaSynth.tools import jaccard_bigram
+from NusaSynth.usage_tracker import invoke_structured_tracked
 
 
 def get_llm() -> ChatGoogleGenerativeAI:
-    """Create LLM instance. Uses GOOGLE_API_KEY env var."""
-    return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.7)
+    """Create LLM instance (Vertex AI). Auth via ADC (GOOGLE_APPLICATION_CREDENTIALS)."""
+    return ChatGoogleGenerativeAI(
+        model=GEMINI_MODEL, temperature=0.7,
+        vertexai=GEMINI_USE_VERTEXAI, project=GEMINI_PROJECT, location=GEMINI_LOCATION,
+    )
 
 
 # ── Node 1: Contextualizer ─────────────────────────────────────────────────
@@ -35,7 +39,7 @@ def contextualizer_node(state: BatchState) -> dict:
     """
 
     llm = get_llm()
-    structured_llm = llm.with_structured_output(ContextualizerOutput)
+    structured_llm = llm.with_structured_output(ContextualizerOutput, include_raw=True)
     messages = build_contextualizer_messages(
         seeds=state["seeds"],
         seed_profile=state["seed_profile"],
@@ -48,17 +52,13 @@ def contextualizer_node(state: BatchState) -> dict:
         return len(returned) == len(expected_ids) and set(returned) == expected_ids
 
     def invoke_with_parse_retry() -> ContextualizerOutput | None:
-        """Invoke structured LLM; retry up to PARSE_MAX_RETRY times on schema parse failure."""
-        total_attempts = PARSE_MAX_RETRY + 1
-        for attempt in range(total_attempts):
-            try:
-                return structured_llm.invoke(messages)
-            except Exception as e:
-                if attempt < PARSE_MAX_RETRY:
-                    print(f"Contextualizer WARNING: parse failed (attempt {attempt + 1}/{total_attempts}: {type(e).__name__}). Coba lagi.")
-                else:
-                    print(f"Contextualizer FAILED: parse failed setelah {total_attempts} attempts ({type(e).__name__}). Batch dibuang.")
-        return None
+        """Invoke structured LLM (records token usage); retry on schema parse failure."""
+        return invoke_structured_tracked(
+            structured_llm, messages,
+            agent_display="Contextualizer", fail_consequence="Batch dibuang.",
+            lang=state["target_lang"], label=state["target_label"],
+            model=GEMINI_MODEL, parse_max_retry=PARSE_MAX_RETRY,
+        )
 
     result_or_none = invoke_with_parse_retry()
     if result_or_none is None:
@@ -141,7 +141,7 @@ def generator_node(state: BatchState) -> dict:
     }
 
     llm = get_llm()
-    structured_llm = llm.with_structured_output(GeneratorOutput)
+    structured_llm = llm.with_structured_output(GeneratorOutput, include_raw=True)
     messages = build_generator_messages(
         seeds=state["seeds"],
         seed_profile=state["seed_profile"],
@@ -159,17 +159,13 @@ def generator_node(state: BatchState) -> dict:
         return len(returned) == len(expected_plan_ids) and set(returned) == expected_plan_ids
 
     def invoke_with_parse_retry() -> GeneratorOutput | None:
-        """Invoke structured LLM; retry up to PARSE_MAX_RETRY times on schema parse failure."""
-        total_attempts = PARSE_MAX_RETRY + 1
-        for attempt in range(total_attempts):
-            try:
-                return structured_llm.invoke(messages)
-            except Exception as e:
-                if attempt < PARSE_MAX_RETRY:
-                    print(f"Generator WARNING: parse failed (attempt {attempt + 1}/{total_attempts}: {type(e).__name__}). Coba lagi.")
-                else:
-                    print(f"Generator FAILED: parse failed setelah {total_attempts} attempts ({type(e).__name__}). Batch dibuang.")
-        return None
+        """Invoke structured LLM (records token usage); retry on schema parse failure."""
+        return invoke_structured_tracked(
+            structured_llm, messages,
+            agent_display="Generator", fail_consequence="Batch dibuang.",
+            lang=state["target_lang"], label=state["target_label"],
+            model=GEMINI_MODEL, parse_max_retry=PARSE_MAX_RETRY,
+        )
 
     result_or_none = invoke_with_parse_retry()
     if result_or_none is None:

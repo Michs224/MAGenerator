@@ -16,10 +16,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, START, StateGraph
 
-from NusaSynth.config import GEMINI_MODEL, PARSE_MAX_RETRY
+from NusaSynth.config import GEMINI_LOCATION, GEMINI_MODEL, GEMINI_PROJECT, GEMINI_USE_VERTEXAI, PARSE_MAX_RETRY
 from NusaSynth.prompts import LVOutput, build_lv_messages
 from NusaSynth.state import LVState, SentenceRecord
 from NusaSynth.tools import identify_language
+from NusaSynth.usage_tracker import invoke_structured_tracked
 
 
 # ── Subgraph node ──────────────────────────────────────────────────────────
@@ -62,8 +63,8 @@ def lv_run(state: LVState) -> dict:
             for i, sent in enumerate(group)
         ]
 
-        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.2)
-        structured_llm = llm.with_structured_output(LVOutput)
+        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.2, vertexai=GEMINI_USE_VERTEXAI, project=GEMINI_PROJECT, location=GEMINI_LOCATION)
+        structured_llm = llm.with_structured_output(LVOutput, include_raw=True)
         messages = build_lv_messages(
             seed=seed,
             sentences_with_glotlid=lv_input,
@@ -77,17 +78,13 @@ def lv_run(state: LVState) -> dict:
             return len(returned) == len(group) and set(returned) == expected_idx_set
 
         def invoke_with_parse_retry() -> LVOutput | None:
-            """Invoke structured LLM; retry up to PARSE_MAX_RETRY times on schema parse failure."""
-            total_attempts = PARSE_MAX_RETRY + 1
-            for attempt in range(total_attempts):
-                try:
-                    return structured_llm.invoke(messages)
-                except Exception as e:
-                    if attempt < PARSE_MAX_RETRY:
-                        print(f"LV WARNING seed_id={seed_id}: parse failed (attempt {attempt + 1}/{total_attempts}: {type(e).__name__}). Coba lagi.")
-                    else:
-                        print(f"LV FAILED seed_id={seed_id}: parse failed setelah {total_attempts} attempts ({type(e).__name__}). Group ditandai VALIDATION_FAILED.")
-            return None
+            """Invoke structured LLM (records token usage); retry on schema parse failure."""
+            return invoke_structured_tracked(
+                structured_llm, messages,
+                agent_display="LV", fail_consequence="Group ditandai VALIDATION_FAILED.",
+                lang=state["target_lang"], label=state["target_label"],
+                model=GEMINI_MODEL, parse_max_retry=PARSE_MAX_RETRY, seed_id=seed_id,
+            )
 
         result_or_none = invoke_with_parse_retry()
         if result_or_none is None:

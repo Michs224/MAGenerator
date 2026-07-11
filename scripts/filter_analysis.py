@@ -23,10 +23,13 @@ from collections import Counter
 sys.stdout.reconfigure(encoding='utf-8')
 
 ROOT = Path('y:/Michh/Python/Projects/MAGenerator')
+sys.path.insert(0, str(ROOT))
+from NusaSynth.config import synthetic_dir  # folder-per-run resolver (latest run / NUSASYNTH_RUN_ID)
+
 SEED_TRAIN = ROOT / 'data/nusax_senti/jav/train.csv'
 SEED_TEST  = ROOT / 'data/nusax_senti/jav/test.csv'
 SEED_VALID = ROOT / 'data/nusax_senti/jav/valid.csv'
-SYN_FULL   = ROOT / 'outputs/synthetic/jav/synthetic.csv'
+SYN_FULL   = synthetic_dir('jav') / 'synthetic.csv'
 
 # ── Auto-save output to file (Tee stdout) ──
 LOG_PATH = ROOT / 'outputs/analysis_logs/filter_analysis.txt'

@@ -23,6 +23,8 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding='utf-8')
 
 ROOT = Path('y:/Michh/Python/Projects/MAGenerator')
+sys.path.insert(0, str(ROOT))
+from NusaSynth.config import synthetic_dir  # folder-per-run resolver (latest run / NUSASYNTH_RUN_ID)
 
 # ── Auto-save output to file (Tee stdout) ──
 LOG_PATH = ROOT / 'outputs/analysis_logs/distinct_n_analysis.txt'
@@ -76,7 +78,7 @@ def main():
     val   = pd.read_csv(ROOT / 'data/nusax_senti/jav/valid.csv')
     test  = pd.read_csv(ROOT / 'data/nusax_senti/jav/test.csv')
 
-    syn_path = ROOT / 'outputs/synthetic/jav/synthetic.csv'
+    syn_path = synthetic_dir('jav') / 'synthetic.csv'
     syn = pd.read_csv(syn_path) if syn_path.exists() else None
 
     print("=" * 100)

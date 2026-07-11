@@ -10,14 +10,17 @@ OUTPUT_BASE_DIR yang sesuai (mis. ...-syn-r40).
 
 Jalankan dari root project:  uv run python scripts/make_ratio_variants.py
 """
+import sys
 import pandas as pd
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root
+from NusaSynth.config import synthetic_dir  # folder-per-run resolver (latest run / NUSASYNTH_RUN_ID)
 
 LANGS = ["ace", "ban", "bjn", "jav", "mad", "min", "sun"]
 RATIOS = {"40": 0.40, "50": 0.50, "60": 0.60}   # fraksi SINTETIS yang dipertahankan
 SAMPLE_SEED = 42                     # reproducible subsample
 DATA = Path("data/nusax_senti")
-SYN = Path("outputs/synthetic")
 
 
 def make_variant(seed_df: pd.DataFrame, syn_df: pd.DataFrame, frac: float) -> pd.DataFrame:
@@ -38,7 +41,7 @@ def make_variant(seed_df: pd.DataFrame, syn_df: pd.DataFrame, frac: float) -> pd
 def main():
     for lang in LANGS:
         seed_path = DATA / lang / "train.csv"
-        syn_path = SYN / lang / "synthetic.csv"
+        syn_path = synthetic_dir(lang) / "synthetic.csv"
         if not (seed_path.exists() and syn_path.exists()):
             print(f"[{lang}] SKIP (seed={seed_path.exists()} syn={syn_path.exists()})")
             continue

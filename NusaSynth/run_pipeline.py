@@ -22,6 +22,7 @@ from NusaSynth.config import BATCH_SIZE, DATA_DIR, DEDUP_THRESHOLD, LABEL_ORDER,
 from NusaSynth.graph import build_pipeline
 from NusaSynth.state import SentenceRecord
 from NusaSynth.tools import jaccard_bigram
+from NusaSynth.usage_tracker import get_run_id, init_usage_tracker
 
 # ── Sample config
 SAMPLE_RATIO: float | None = None  # 10% per label — flip to None for full run
@@ -182,6 +183,12 @@ def save_results(
 
 
 def run_language(lang: str | list[str], labels: list[str] | None = None):
+    init_usage_tracker(OUTPUT_DIR.parent / "usage")
+
+    run_id = get_run_id()
+    run_dir = OUTPUT_DIR / run_id if run_id else OUTPUT_DIR
+    print(f"Output run ini -> {run_dir}/<lang>/")
+
     if isinstance(lang, str):
         langs = [lang]
     else:
@@ -192,10 +199,11 @@ def run_language(lang: str | list[str], labels: list[str] | None = None):
             print(f"\n{'#'*60}")
             print(f"# Bahasa {idx + 1}/{len(langs)}: {single_lang}")
             print(f"{'#'*60}")
-        _run_single_language(single_lang, labels)
+        _run_single_language(single_lang, labels, run_dir)
 
 
-def _run_single_language(lang: str, labels: list[str] | None = None):
+def _run_single_language(lang: str, labels: list[str] | None = None, run_dir: Path | None = None):
+    run_dir = run_dir or OUTPUT_DIR
     lang_name = LANG_NAMES[lang]
     print(f"\n{'='*60}")
     print(f"NusaSynth: {lang_name} ({lang})")
@@ -248,7 +256,7 @@ def _run_single_language(lang: str, labels: list[str] | None = None):
             print(f"  -> {len(accepted)} diterima, {len(discarded)} dibuang, {len(retried)} diretry")
 
             kept_count, dedup_count = save_results(
-                lang, label, accepted, discarded, retried, OUTPUT_DIR,
+                lang, label, accepted, discarded, retried, run_dir,
                 batch_idx=batch_idx,
                 batch_seed_ids=[s["id"] for s in batch],
             )
@@ -258,7 +266,7 @@ def _run_single_language(lang: str, labels: list[str] | None = None):
 
     print(f"\n{lang_name} selesai: {total_accepted} diterima, "
           f"{total_dedup_filtered} dedup-filtered, {total_discarded} dibuang")
-    print(f"Disimpan ke: {OUTPUT_DIR / lang / 'synthetic.csv'}")
+    print(f"Disimpan ke: {run_dir / lang / 'synthetic.csv'}")
 
 
 if __name__ == "__main__":
