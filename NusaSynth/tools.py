@@ -140,6 +140,11 @@ def classify_sentiment_batch(texts: list[str], lang: str, batch_size: int = 64) 
     Inference di bf16 autocast — WAJIB, karena training pakai bf16. Dengan fp32 ada sampel borderline
     yang flip (ace: 399/400 vs 400/400; F1 80.27 vs 80.54). dtype = bagian dari resep bit-exact.
 
+    ⚠️ Confidence = softmax MENTAH (TANPA temperature-scaling ÷T) — DISENGAJA, JANGAN diubah:
+    sinyal SV = bukti-lunak (LLM boleh override), softmax-mentah = norma sinyal lunak; ECE 4.30%
+    terlalu kecil utk menggeser verdict LLM. Memasang ÷T akan meng-invalidate konsistensi ablation
+    (semua run pakai confidence mentah). Detail: agent_doc/thesis/sv_confidence_calibration.md.
+
     Returns: [{"label": "negative"|"neutral"|"positive", "confidence": float}, ...]
     """
     if not texts:
