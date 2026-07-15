@@ -12,6 +12,9 @@ pendekatan SmSA mati utk ace, STOP (hemat semua compute stage-1). Reuse fetch+le
 Jalankan dari root:  uv run python scripts/sv_grounding_2/stilt_gentle.py
 """
 import os
+# Fix OOM fragmentasi (full-FT 337M + batch16 mepet 8GB VRAM) — HARUS sebelum torch init CUDA.
+# Gotcha proyek: fix = expandable_segments (bukan turunin batch). CMD-safe (nggak perlu set env manual).
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import json
 import shutil
 
@@ -22,17 +25,19 @@ from transformers import (AutoConfig, AutoModelForSequenceClassification, DataCo
 
 import stilt_smsa as base   # reuse: fetch_smsa, leakage_filter, make_ds, compute_metrics, gate_zeroshot, konstanta
 
-# --- GRID gentle stage-0 (semua LEBIH lembut dari default 2e-5/3ep) ---
-GRID_LR = [1e-5, 5e-6]          # setengah & seperempat LR default
+# --- GRID gentle stage-0 = (LR, epochs) ---
+# Ronde-1/2 (5ep): 5e-6 puncak (ace-zs 71), 2.5e-6 ~70, 1e-6 KOLAPS (val 82 = UNDERFIT, 5ep tak cukup buat LR segitu kecil).
+# Ronde-3 (LONG epoch): kasih LR terkecil cukup epoch buat KONVERGEN (val ~91) → uji adil "sangat-lembut-per-langkah".
+GRID_CONFIGS = [(1e-5, 5), (5e-6, 5), (2.5e-6, 5), (1e-6, 5),   # lama (5ep) — resumable-skip
+                (1e-6, 15), (2.5e-6, 12)]                        # baru: LR kecil + epoch tinggi (biar konvergen)
 GRID_SEED = [42, 0, 1]         # multiseed (nutup caveat "stage-0 1-run" ala R3)
-EPOCHS = 5                      # user: naikin ke 5 (dengan LR kecil = aman, bukan over-spesialisasi)
-PATIENCE = 3
+PATIENCE = 3                    # early-stop tetap jaga: kalau konvergen lebih cepat, berhenti sendiri
 OUT = "outputs/sv2-smsa-gentle"
 BASELINE_ACE_ZS = 64.04        # ace zero-shot stage-0 default (LR2e-5/3ep) — pembanding
 GATE_ACE_ZS = 70.0             # ambang "worth lanjut stage-1": ace zero-shot >= 70 (naik >~6 dari baseline)
 
 
-def train_gentle(smsa, tok, lr, seed, out_dir):
+def train_gentle(smsa, tok, lr, seed, out_dir, epochs):
     cfg = AutoConfig.from_pretrained(base.MODEL_CHECKPOINT)
     cfg.num_labels = 3; cfg.label2id = base.LABEL2ID
     cfg.id2label = {i: v for i, v in enumerate(base.LABEL_LIST)}
@@ -46,7 +51,7 @@ def train_gentle(smsa, tok, lr, seed, out_dir):
     args = TrainingArguments(
         output_dir=f"{out_dir}/run", eval_strategy="epoch", save_strategy="epoch", logging_strategy="epoch",
         per_device_train_batch_size=16, per_device_eval_batch_size=64, optim="adamw_torch_fused",
-        learning_rate=lr, weight_decay=0.01, num_train_epochs=EPOCHS, warmup_ratio=0.1,
+        learning_rate=lr, weight_decay=0.01, num_train_epochs=epochs, warmup_ratio=0.1,
         save_total_limit=1, load_best_model_at_end=True, metric_for_best_model="f1", save_only_model=True,
         bf16=torch.cuda.is_available(), report_to="none", seed=seed, data_seed=seed)
     trainer = Trainer(model_init=model_init, args=args, train_dataset=ds_tr, eval_dataset=ds_va,
@@ -64,8 +69,13 @@ def train_gentle(smsa, tok, lr, seed, out_dir):
     return trainer, val
 
 
+def cfg_tag(lr, epochs, seed):
+    # tag 5ep = format LAMA (biar resumable-skip); non-5 dapat suffix ep biar tak collide
+    return f"lr{lr:g}_seed{seed}" if epochs == 5 else f"lr{lr:g}ep{epochs}_seed{seed}"
+
+
 def main():
-    print(f"CUDA={torch.cuda.is_available()} | GENTLE stage-0 sweep (LR {GRID_LR} × seed {GRID_SEED}, {EPOCHS}ep)")
+    print(f"CUDA={torch.cuda.is_available()} | GENTLE stage-0 sweep configs={GRID_CONFIGS} × seed {GRID_SEED}")
     tok = BertTokenizerFast.from_pretrained(base.MODEL_CHECKPOINT)
     smsa = base.fetch_smsa()
     filtered, _ = base.leakage_filter(smsa["train"])
@@ -73,18 +83,18 @@ def main():
     os.makedirs(OUT, exist_ok=True)
 
     rows = []
-    for lr in GRID_LR:
+    for lr, epochs in GRID_CONFIGS:
         for seed in GRID_SEED:
-            tag = f"lr{lr:.0e}_seed{seed}"
+            tag = cfg_tag(lr, epochs, seed)
             out_dir = f"{OUT}/{tag}"
             sp = f"{out_dir}/zeroshot.json"
             if os.path.exists(sp):
-                d = json.load(open(sp)); rows.append((tag, d["smsa_val"], d["zeroshot"]));
+                d = json.load(open(sp)); rows.append((tag, d["smsa_val"], d["zeroshot"]))
                 print(f"--- {tag} SKIP (ada)"); continue
-            print(f"\n--- {tag} (lr={lr}, seed={seed}, {EPOCHS}ep)")
-            trainer, val = train_gentle(smsa, tok, lr, seed, out_dir)
+            print(f"\n--- {tag} (lr={lr}, seed={seed}, {epochs}ep)")
+            trainer, val = train_gentle(smsa, tok, lr, seed, out_dir, epochs)
             zs = base.gate_zeroshot(trainer, tok)
-            json.dump({"lr": lr, "seed": seed, "epochs": EPOCHS, "smsa_val": val, "zeroshot": zs}, open(sp, "w"), indent=2)
+            json.dump({"lr": lr, "seed": seed, "epochs": epochs, "smsa_val": val, "zeroshot": zs}, open(sp, "w"), indent=2)
             rows.append((tag, val, zs))
             del trainer; torch.cuda.empty_cache()
 
