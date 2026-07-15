@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, START, StateGraph
 
-from NusaSynth.config import GEMINI_LOCATION, GEMINI_MODEL, GEMINI_PROJECT, GEMINI_USE_VERTEXAI, PARSE_MAX_RETRY
+from NusaSynth.config import GEMINI_LOCATION, GEMINI_MODEL, GEMINI_PROJECT, GEMINI_TEMP_VALIDATOR, GEMINI_THINK_VALIDATOR, GEMINI_USE_VERTEXAI, PARSE_MAX_RETRY
 from NusaSynth.prompts import SVOutput, build_sv_messages
 from NusaSynth.state import SVState, SentenceRecord
 from NusaSynth.tools import classify_sentiment_batch
@@ -58,7 +58,7 @@ def sv_run(state: SVState) -> dict:
             for i, sent in enumerate(group)
         ]
 
-        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.2, vertexai=GEMINI_USE_VERTEXAI, project=GEMINI_PROJECT, location=GEMINI_LOCATION)
+        llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=GEMINI_TEMP_VALIDATOR, thinking_level=GEMINI_THINK_VALIDATOR, vertexai=GEMINI_USE_VERTEXAI, project=GEMINI_PROJECT, location=GEMINI_LOCATION)
         structured_llm = llm.with_structured_output(SVOutput, include_raw=True)
         messages = build_sv_messages(
             seed=seed,

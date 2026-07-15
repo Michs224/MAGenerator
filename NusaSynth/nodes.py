@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from NusaSynth.config import DEDUP_THRESHOLD, GEMINI_LOCATION, GEMINI_MODEL, GEMINI_PROJECT, GEMINI_USE_VERTEXAI, MAX_RETRY, PARSE_MAX_RETRY
+from NusaSynth.config import DEDUP_THRESHOLD, GEMINI_LOCATION, GEMINI_MODEL, GEMINI_PROJECT, GEMINI_TEMP_GEN, GEMINI_THINK_GEN, GEMINI_USE_VERTEXAI, MAX_RETRY, PARSE_MAX_RETRY
 from NusaSynth.prompts import (
     ContextualizerOutput,
     GeneratorOutput,
@@ -22,7 +22,7 @@ from NusaSynth.usage_tracker import invoke_structured_tracked
 def get_llm() -> ChatGoogleGenerativeAI:
     """Create LLM instance (Vertex AI). Auth via ADC (GOOGLE_APPLICATION_CREDENTIALS)."""
     return ChatGoogleGenerativeAI(
-        model=GEMINI_MODEL, temperature=0.7,
+        model=GEMINI_MODEL, temperature=GEMINI_TEMP_GEN, thinking_level=GEMINI_THINK_GEN,
         vertexai=GEMINI_USE_VERTEXAI, project=GEMINI_PROJECT, location=GEMINI_LOCATION,
     )
 

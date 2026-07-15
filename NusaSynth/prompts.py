@@ -259,7 +259,10 @@ Use Chain-of-Thought reasoning for each sentence:
 Important:
 - NusaBERT is a SIGNAL, not the final answer. It may be wrong on unfamiliar vocabulary.
 - Do NOT reject because of code-mixing or unfamiliar words.
-- Only reject if the MEANING clearly contradicts the target label "{target_label}"."""
+- STRICT THRESHOLD: REJECT unless the sentence CLEARLY and UNAMBIGUOUSLY expresses the target label "{target_label}". A sentence that is vague, hedged, mixed-sentiment, or only weakly/implicitly conveys "{target_label}" MUST be REJECTED. When genuinely uncertain, REJECT.
+- SIGNAL CALIBRATION: NusaBERT is only ~87% accurate on this language, so it is wrong about 1 in 8 times.
+  * Do NOT reject a sentence SOLELY because NusaBERT disagrees with the target label. If your own semantic_analysis says the sentence does express "{target_label}", PASS it and note that you override NusaBERT.
+  * Do NOT pass a sentence SOLELY because NusaBERT agrees with the target label. A confirming NusaBERT signal is NOT evidence; your own semantic_analysis decides. If the text does not clearly express "{target_label}", REJECT it even when NusaBERT agrees."""
 
     sentences_json = json.dumps(sentences_with_nusabert, indent=2, ensure_ascii=False)
     user = f"""Target label: {target_label}
