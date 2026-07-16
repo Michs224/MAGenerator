@@ -124,13 +124,13 @@ Each plan must include:
 Rules:
 - RESPECT the domain and style of each seed
 - Prioritize variations that remain plausible for the same data source as the seed
-- Keep each variation within the seed's domain — do not shift to a different domain
+- Keep each variation within the seed's domain - do not shift to a different domain
 
-CRITICAL — APPROACH DIVERSITY:
+CRITICAL - APPROACH DIVERSITY:
 The {SENTENCES_PER_SEED} variations for each seed must use DIFFERENT expressive approaches. Think of them as written by different people in different situations. Across the {SENTENCES_PER_SEED} plans, vary:
 - Who is speaking and from what angle (first person experience, third person observation, advice to others, rhetorical question, comparison)
 - What aspect is the focus (product, service, atmosphere, price-value ratio, specific incident, emotional reaction)
-- How the sentiment surfaces (stated directly, or implied through the situation or its consequence; also sarcasm, narrative, comparison, factual observation) — across the {SENTENCES_PER_SEED} variations, avoid letting every one rely on explicit sentiment words
+- How the sentiment surfaces (stated directly, or implied through the situation or its consequence; also sarcasm, narrative, comparison, factual observation) - across the {SENTENCES_PER_SEED} variations, avoid letting every one rely on explicit sentiment words
 
 Do NOT plan {SENTENCES_PER_SEED} sentences that all open the same way or follow the same sentence skeleton with swapped entities. Avoid templated strategy descriptions across plans."""
 
@@ -167,29 +167,29 @@ def build_generator_messages(
 
 Generate ONE sentence per variation instruction. Total: {n_sentences} sentences.
 
-Seed Profile ({lang_name}) — length reference per label:
+Seed Profile ({lang_name}) - length reference per label:
 - negative: avg {al['negative']['mean']} words (std {al['negative']['std']})
 - neutral:  avg {al['neutral']['mean']} words (std {al['neutral']['std']})
 - positive: avg {al['positive']['mean']} words (std {al['positive']['std']})
-- The seed reference sentences below show concrete examples — observe each seed's elaboration depth
+- The seed reference sentences below show concrete examples - observe each seed's elaboration depth
 
 Each variation plan includes context derived from its seed:
 - plan_id: unique id of the plan (copy this exactly into your output)
 - domain: topic or domain to stay within
 - style: register and tone to match
 - sentiment_expression: how sentiment was expressed in the seed
-- strategy: what to change in the variation (may include how the sentiment is delivered — stated directly vs implied through the situation/consequence)
-- preserve: the sentiment/meaning to keep — NOT phrases to copy verbatim
+- strategy: what to change in the variation (may include how the sentiment is delivered - stated directly vs implied through the situation/consequence)
+- preserve: the sentiment/meaning to keep - NOT phrases to copy verbatim
 
 Rules:
 - Express {target_label} sentiment in {lang_name}
 - For every generated sentence, copy back the plan_id and seed_id exactly from the plan you are addressing
-- Generate ONE sentence per plan_id — every input plan_id must appear exactly once in your output
+- Generate ONE sentence per plan_id - every input plan_id must appear exactly once in your output
 - Honor each plan's domain and style; the plan's strategy guides how the sentiment is delivered (which may differ from the seed's expression)
 - Preserve the seed's underlying sentiment even when it is expressed indirectly (through situation, consequence, or comparison)
-- Make each variation lexically novel, label-stable, and plausible within the seed's domain — without copying the seed's phrases verbatim
-- Match the style and tone of the seeds — your output must sound like it comes from the same data source
-- Code-mixing with Indonesian is common here — match the seed's natural code-mixing
+- Make each variation lexically novel, label-stable, and plausible within the seed's domain - without copying the seed's phrases verbatim
+- Match the style and tone of the seeds - your output must sound like it comes from the same data source
+- Code-mixing with Indonesian is common here - match the seed's natural code-mixing
 - Length matching:
   * Each generated sentence should preserve its source seed's elaboration depth (judged from the seed text itself)
   * Brief seed → variations of similar brevity
@@ -197,9 +197,9 @@ Rules:
   * Natural slight variation around the seed's depth is acceptable
   * The aggregate batch naturally spans lengths because input seeds vary in elaboration depth
   * Avoid producing sentences with uniform length regardless of source seed
-- CRITICAL: every sentence must be structurally distinct — do NOT repeat the same template with swapped words.
+- CRITICAL: every sentence must be structurally distinct - do NOT repeat the same template with swapped words.
 
-The {len(seeds)} seeds below are your style reference — study their vocabulary, tone, and length:
+The {len(seeds)} seeds below are your style reference - study their vocabulary, tone, and length:
 
 {seed_ref}"""
 
@@ -251,7 +251,7 @@ For each sentence, you receive:
 - NusaBERT prediction and confidence (a programmatic classifier signal fine-tuned on the original training data)
 
 Use Chain-of-Thought reasoning for each sentence:
-1. nusabert_assessment: Interpret what NusaBERT predicts and judge how reliable its signal seems — the classifier may be misled by rare or unfamiliar words.
+1. nusabert_assessment: Interpret what NusaBERT predicts and judge how reliable its signal seems - the classifier may be misled by rare or unfamiliar words.
 2. semantic_analysis: Analyze what sentiment the text actually expresses, independently from NusaBERT.
 3. verdict: PASS or REJECT
 4. reason: required if REJECT, brief explanation
@@ -260,7 +260,7 @@ Important:
 - NusaBERT is a SIGNAL, not the final answer. It may be wrong on unfamiliar vocabulary.
 - Do NOT reject because of code-mixing or unfamiliar words.
 - STRICT THRESHOLD: REJECT unless the sentence CLEARLY and UNAMBIGUOUSLY expresses the target label "{target_label}". A sentence that is vague, hedged, mixed-sentiment, or only weakly/implicitly conveys "{target_label}" MUST be REJECTED. When genuinely uncertain, REJECT.
-- SIGNAL CALIBRATION: NusaBERT is only ~87% accurate on this language, so it is wrong about 1 in 8 times.
+- SIGNAL CALIBRATION: NusaBERT is a useful but IMPERFECT signal - treat it as evidence, not ground truth.
   * Do NOT reject a sentence SOLELY because NusaBERT disagrees with the target label. If your own semantic_analysis says the sentence does express "{target_label}", PASS it and note that you override NusaBERT.
   * Do NOT pass a sentence SOLELY because NusaBERT agrees with the target label. A confirming NusaBERT signal is NOT evidence; your own semantic_analysis decides. If the text does not clearly express "{target_label}", REJECT it even when NusaBERT agrees."""
 
@@ -297,8 +297,12 @@ Use Chain-of-Thought reasoning for each sentence:
 4. reason: required if REJECT
 
 Important:
-- Natural code-mixing with Indonesian IS acceptable (the source dataset naturally contains code-mixed text)
-- Only reject if: detected as completely wrong language, obviously machine-translated, grammatically broken, or incoherent"""
+- GlotLID is a SIGNAL, not the final answer. It may misfire on short or code-mixed text.
+- Do NOT reject because of natural code-mixing with Indonesian (the source dataset naturally contains code-mixed text).
+- STRICT THRESHOLD: REJECT unless the sentence reads as fluent, natural {lang_name}. Translationese, awkward or stilted phrasing, machine-translated feel, broken grammar, or incoherent meaning MUST be REJECTED. When genuinely uncertain about naturalness, REJECT.
+- SIGNAL CALIBRATION: GlotLID is a useful but IMPERFECT signal - treat it as evidence, not ground truth.
+  * Do NOT reject a sentence SOLELY because GlotLID detects a different language, if the text clearly reads as natural {lang_name} (GlotLID can misfire on short or code-mixed text). PASS it and note that you override GlotLID.
+  * Do NOT pass a sentence SOLELY because GlotLID confirms the language, if it reads as translationese or unnatural. REJECT it even when GlotLID agrees."""
 
     sentences_json = json.dumps(sentences_with_glotlid, indent=2, ensure_ascii=False)
     user = f"""Target language: {lang_name} ({target_lang})

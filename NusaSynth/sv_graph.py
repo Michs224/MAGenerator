@@ -28,6 +28,11 @@ def sv_run(state: SVState) -> dict:
     """Run SV on all current_sentences: batch NusaBERT + parallel LLM calls."""
     sentences = list(state["current_sentences"])
 
+    # Guard batch kosong: kalau generator (mis. gagal-parse di pass retry) balik current_sentences=[],
+    # groups=[] -> ThreadPoolExecutor(max_workers=0) melempar ValueError. Return kosong seperti lv_run.
+    if not sentences:
+        return {"current_sentences": []}
+
     # Step 1: Batch NusaBERT inference (single GPU pass for all sentences)
     texts = [s["text"] for s in sentences]
     nb_results = classify_sentiment_batch(texts, state["target_lang"])
