@@ -87,6 +87,26 @@ def chunk(lst: list, size: int) -> list[list]:
     return [lst[i : i + size] for i in range(0, len(lst), size)]
 
 
+def free_nusabert_cache() -> None:
+    """Lepas model NusaBERT bahasa yang sudah selesai dari VRAM (~1.35 GB/bahasa).
+
+    tools.py cache model per-bahasa dan tak pernah melepasnya. Tanpa ini, run 7 bahasa
+    dalam SATU proses menumpuk ~9.5 GB > VRAM 8.6 GB -> spill ke shared RAM (lambat),
+    padahal model bahasa lama sudah tidak dipakai. Cache tetap berguna DALAM satu bahasa
+    (antar-batch); dilepas hanya saat pindah bahasa. tools.py TIDAK disentuh.
+    """
+    import gc
+
+    import torch
+
+    from NusaSynth import tools
+
+    tools._nusabert_cache.clear()
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def save_results(
     lang: str,
     label: str,
@@ -200,6 +220,7 @@ def run_language(lang: str | list[str], labels: list[str] | None = None):
             print(f"# Bahasa {idx + 1}/{len(langs)}: {single_lang}")
             print(f"{'#'*60}")
         _run_single_language(single_lang, labels, run_dir)
+        free_nusabert_cache()  # VRAM: model bahasa ini selesai, lepas sebelum bahasa berikutnya
 
 
 def _run_single_language(lang: str, labels: list[str] | None = None, run_dir: Path | None = None):
