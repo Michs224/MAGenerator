@@ -25,7 +25,7 @@ from NusaSynth.sv_graph import build_sv_subgraph
 def route_after_collect(state: BatchState) -> Literal["generator", "__end__"]:
     """Conditional routing after collect: retry → generator, or END."""
     if state.get("to_retry"):
-        print(f"Retry: {len(state['to_retry'])} kalimat → generator")
+        print(f"Retry: {len(state['to_retry'])} kalimat -> generator")
         return "generator"
     return END
 

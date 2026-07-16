@@ -104,7 +104,7 @@ def contextualizer_node(state: BatchState) -> dict:
         })
 
     total_variations = sum(len(p["variations"]) for p in plans)
-    print(f"Contextualizer: {len(plans)} seeds → {total_variations} plans dihasilkan")
+    print(f"Contextualizer: {len(plans)} seeds -> {total_variations} plans dihasilkan")
     return {"variation_plans": plans, "next_sid": 0}
 
 
