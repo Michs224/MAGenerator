@@ -9,6 +9,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data" / "nusax_senti"
 GLOTLID_PATH = ROOT / "models" / "glotlid" / "model.bin"
 OUTPUT_DIR = ROOT / "outputs" / "synthetic"
+SINGLE_LLM_OUTPUT_DIR = ROOT / "outputs" / "synthetic_single_llm"  # baseline ablation, terpisah dari synthetic/
+
+# PIPELINE_MODE dibaca HANYA oleh run_pipeline __main__; pipeline penuh tak pernah bercabang atasnya.
+PIPELINE_MODE = os.getenv("PIPELINE_MODE", "full")  # "full" | "single_llm"
 
 # ── Sinyal SV: NusaBERT-large SV-grounding (LP-FT + LoRA PiSSA, dropout 0.06) ──
 # Dihasilkan scripts/sv_grounding/p1_sweep/pissa_drop06_full.py (champion_p1_base.py).
@@ -49,6 +53,20 @@ def synthetic_dir(lang: str, run_id: str | None = None) -> Path:
     """
     rid = run_id or os.getenv("NUSASYNTH_RUN_ID") or latest_run_id()
     return (OUTPUT_DIR / rid / lang) if rid else (OUTPUT_DIR / lang)
+
+
+def latest_single_llm_run_id() -> str | None:
+    """Newest run folder under SINGLE_LLM_OUTPUT_DIR (mirror latest_run_id)."""
+    if not SINGLE_LLM_OUTPUT_DIR.exists():
+        return None
+    runs = sorted(p.name for p in SINGLE_LLM_OUTPUT_DIR.iterdir() if p.is_dir() and _RUN_ID_RE.match(p.name))
+    return runs[-1] if runs else None
+
+
+def single_llm_synthetic_dir(lang: str, run_id: str | None = None) -> Path:
+    """Path outputs/synthetic_single_llm/<run_id>/<lang>/. Pin via arg / env SINGLE_LLM_RUN_ID."""
+    rid = run_id or os.getenv("SINGLE_LLM_RUN_ID") or latest_single_llm_run_id()
+    return (SINGLE_LLM_OUTPUT_DIR / rid / lang) if rid else (SINGLE_LLM_OUTPUT_DIR / lang)
 
 
 # ── LLM (Vertex AI: project/location dioper eksplisit; kredensial via ADC) ───

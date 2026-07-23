@@ -291,4 +291,10 @@ def _run_single_language(lang: str, labels: list[str] | None = None, run_dir: Pa
 
 
 if __name__ == "__main__":
-    run_language(TARGET_LANGS)
+    from NusaSynth.config import PIPELINE_MODE
+
+    if PIPELINE_MODE == "single_llm":
+        from NusaSynth.single_llm import run_single_llm_language
+        run_single_llm_language(TARGET_LANGS)
+    else:
+        run_language(TARGET_LANGS)
