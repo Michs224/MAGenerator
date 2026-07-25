@@ -1,3 +1,4 @@
+import os
 import evaluate
 import numpy as np
 import pandas as pd
@@ -25,22 +26,49 @@ WEIGHT_DECAY = 0.01
 TRAIN_BATCH_SIZE = 32        # paper = 32
 EVAL_BATCH_SIZE = 64      # paper = 64, turunkan untuk VRAM
 # GRADIENT_ACCUMULATION_STEPS = 4   # effective batch = 4 * 4 = 16 (sama dengan paper)
-EARLY_STOPPING_PATIENCE = 5 #3
-SEED = 123
-OUTPUT_BASE_DIR = "outputs/nusabert-sentiment-base-syn-123"
+EARLY_STOPPING_PATIENCE = 5   # paper NusaBERT TIDAK menyebut angka -> config kami (report, JANGAN cite)
+USE_AUGMENTED = True          # False = baseline (train.csv); True = augmented (syn/train_syn.csv)
+
+# Multi-seed: lapor mean+-std, BUKAN median/best (Reimers&Gurevych 2017; Dodge dkk. 2019).
+# Yang divariasikan = SEED (init bobot + shuffle data), bukan run-ulang seed sama.
+SEEDS = [42, 0, 123]
+
+# Bobot TIDAK dipakai apa pun -> cuma metrik yang diambil (~1,3 GB/bahasa dihemat).
+# save_strategy tetap "epoch": load_best_model_at_end WAJIB butuh checkpoint utk restore best.
+KEEP_WEIGHTS = False
+
+_suffix = "-syn" if USE_AUGMENTED else "-baseline"
+
+# Sumber sintetis: "full" = pipeline NusaSynth penuh; "single_llm" = baseline ablation.
+SYNTH_SOURCE = os.environ.get("SYNTH_SOURCE", "single_llm").strip()  # "full" | "single_llm" (override via env)
+_src_sub = "syn" if SYNTH_SOURCE == "full" else "syn_single_llm"        # data/nusax_senti/<lang>/<_src_sub>/
+_out_root = "downstream_full" if SYNTH_SOURCE == "full" else "downstream_single_llm"
+_train_file = "train_syn.csv" if SYNTH_SOURCE == "full" else "train_syn_single_llm.csv"
+RATIO = os.environ.get("SYN_RATIO", "").strip()   # mis. "50" -> train_syn_50.csv + folder _r50 (kosong = 100%)
+if RATIO:
+    _train_file = f"train_syn_{RATIO}.csv"
+    _out_root = f"{_out_root}_r{RATIO}"
 
 
-def finetune(lang_code: str):
+def out_base(seed: int) -> str:
+    return f"outputs/{_out_root}/nusabert-sentiment-base{_suffix}-seed{seed}"
+
+
+def finetune(lang_code: str, seed: int):
     model_name = MODEL_CHECKPOINT.split("/")[-1].lower()
     print(f"\n{'='*50}")
     print(f"Fine-tuning {model_name} on NusaX-Senti [{lang_code}]")
     print(f"{'='*50}")
 
-    # Load data
+    # Load data — baseline=train.csv, augmented=syn/train_syn.csv (bangun dgn make_ratio_variants.py)
     data_dir = f"data/nusax_senti/{lang_code}"
-    train_df = pd.read_csv(f"{data_dir}/train.csv")
+    train_path = f"{data_dir}/{_src_sub}/{_train_file}" if USE_AUGMENTED else f"{data_dir}/train.csv"
+    train_df = pd.read_csv(train_path)
     valid_df = pd.read_csv(f"{data_dir}/valid.csv")
     test_df = pd.read_csv(f"{data_dir}/test.csv")
+    print(f"  MODE : {'AUGMENTED' if USE_AUGMENTED else 'BASELINE'}  <- {train_path}")
+    print(f"  data : train {len(train_df)} | valid {len(valid_df)} | test {len(test_df)}")
+    print(f"  label: {train_df['label'].value_counts().to_dict()}")
 
     label_list = sorted(train_df["label"].unique().tolist())
     label2id = {v: i for i, v in enumerate(label_list)}
@@ -109,7 +137,7 @@ def finetune(lang_code: str):
         acc = accuracy_metric.compute(predictions=predictions, references=labels)
         return {"f1": round(f1["f1"], 4), "accuracy": round(acc["accuracy"], 4)}
 
-    output_dir = f"{OUTPUT_BASE_DIR}/{model_name}-{lang_code}"
+    output_dir = f"{out_base(seed)}/{model_name}-{lang_code}"
 
     training_args = TrainingArguments(
         output_dir=output_dir,
@@ -132,8 +160,8 @@ def finetune(lang_code: str):
         bf16=torch.cuda.is_available(),
         report_to="none",
         # logging_steps=32,
-        seed=SEED,
-        data_seed=SEED,
+        seed=seed,
+        data_seed=seed,
     )
 
     # model_init agar classification head di-initialize SETELAH seed di-set
@@ -197,10 +225,13 @@ def finetune(lang_code: str):
     print(f"  F1 (macro): {test_results['eval_f1']:.4f}")
     print(f"  Accuracy:   {test_results['eval_accuracy']:.4f}")
 
-    best_model_dir = f"{output_dir}/best"
-    trainer.save_model(best_model_dir)
-    tokenizer.save_pretrained(best_model_dir)
-    print(f"  Saved to: {best_model_dir}")
+    if KEEP_WEIGHTS:
+        best_model_dir = f"{output_dir}/best"
+        trainer.save_model(best_model_dir)
+        tokenizer.save_pretrained(best_model_dir)
+        print(f"  Saved to: {best_model_dir}")
+    else:
+        print("  Bobot TIDAK disimpan (KEEP_WEIGHTS=False) - metrik sudah diambil, bobot tak dipakai")
 
     # Simpan history ke JSON
     import json
@@ -233,30 +264,11 @@ def finetune(lang_code: str):
             "stop_epoch": stop_epoch, "best_epoch": best_epoch, "best_val_f1": best_val_f1, "epochs_past_best": epochs_past_best}
 
 
-if __name__ == "__main__":
+def _write_summary(summary_path: str, seed: int, results: dict) -> None:
+    """Tulis results_summary.json. Dipanggil TIAP bahasa kelar -> file ini = progres + sumber
+    kebenaran buat resume (crash tak menghanguskan bahasa yang sudah selesai)."""
     import json
-    model_name = MODEL_CHECKPOINT.split("/")[-1].lower()
-    all_results = {}
-    for lang in TARGET_LANGS:
-        result = finetune(lang)
-        all_results[lang] = result
 
-    # Paper reference (NusaBERT-base, from Table 6)
-    paper_scores = {
-        "ace": 76.5, "ban": 78.7, "bbc": 74.0, "bjn": 82.4, "bug": 71.6,
-        "eng": 84.1, "ind": 89.7, "jav": 84.1, "mad": 75.6, "min": 80.8,
-        "nij": 74.9, "sun": 85.2,
-    }
-
-    print(f"\nSUMMARY: {model_name} on NusaX-Senti")
-    for lang, res in all_results.items():
-        train_f1 = res["train_results"]["train_f1"] * 100
-        val_f1   = res["val_results"]["validation_f1"] * 100
-        test_f1  = res["test_results"]["eval_f1"] * 100
-        paper_f1 = paper_scores.get(lang, 0)
-        print(f"  {lang}: train={train_f1:.2f}% val={val_f1:.2f}% test={test_f1:.2f}% (paper - test set: {paper_f1}%) | stop@ep{res['stop_epoch']} best@ep{res['best_epoch']}")
-
-    summary_path = f"{OUTPUT_BASE_DIR}/results_summary.json"
     summary = {
         "hyperparams": {
             "model_checkpoint": MODEL_CHECKPOINT,
@@ -268,27 +280,85 @@ if __name__ == "__main__":
             "train_batch_size": TRAIN_BATCH_SIZE,
             "eval_batch_size": EVAL_BATCH_SIZE,
             "early_stopping_patience": EARLY_STOPPING_PATIENCE,
-            # "warmup_ratio": 0.1,
-            # "label_smoothing_factor": 0.1,
-            # "max_grad_norm": 1.0,
-            "seed": SEED,
+            "use_augmented": USE_AUGMENTED,
+            # "max_grad_norm": 1.0,   # tak di-set -> default HF 1.0 (paper NusaBERT tak menyebut)
+            "seed": seed,
+            "keep_weights": KEEP_WEIGHTS,
         },
-        "results": {
-            lang: {
-                "train_f1": res["train_results"]["train_f1"],
-                "train_accuracy": res["train_results"]["train_accuracy"],
-                "val_f1": res["val_results"]["validation_f1"],
-                "val_accuracy": res["val_results"]["validation_accuracy"],
-                "test_f1": res["test_results"]["eval_f1"],
-                "test_accuracy": res["test_results"]["eval_accuracy"],
-                "stop_epoch": res["stop_epoch"],
-                "best_epoch": res["best_epoch"],
-                "best_val_f1": res["best_val_f1"],
-                "epochs_past_best": res["epochs_past_best"],
-            }
-            for lang, res in all_results.items()
-        },
+        "results": results,
     }
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"\nResults saved to: {summary_path}")
+
+
+def _run_seed(seed: int, model_name: str, paper_scores: dict) -> dict[str, float]:
+    """Latih semua bahasa untuk SATU seed. RESUMABLE: results_summary.json = sumber kebenaran
+    progres, ditulis tiap bahasa kelar -> crash tak menghanguskan bahasa yang sudah jadi."""
+    import json
+    import os
+
+    os.makedirs(out_base(seed), exist_ok=True)
+    summary_path = f"{out_base(seed)}/results_summary.json"
+    results = json.load(open(summary_path))["results"] if os.path.exists(summary_path) else {}
+    if results:
+        print(f"  RESUME: {len(results)}/{len(TARGET_LANGS)} bahasa sudah ada -> {sorted(results)}")
+
+    for lang in TARGET_LANGS:
+        if lang in results:
+            print(f"[seed {seed}][{lang}] SKIP (sudah di results_summary)")
+            continue
+        res = finetune(lang, seed)
+        results[lang] = {
+            "train_f1": res["train_results"]["train_f1"],
+            "train_accuracy": res["train_results"]["train_accuracy"],
+            "val_f1": res["val_results"]["validation_f1"],
+            "val_accuracy": res["val_results"]["validation_accuracy"],
+            "test_f1": res["test_results"]["eval_f1"],
+            "test_accuracy": res["test_results"]["eval_accuracy"],
+            "stop_epoch": res["stop_epoch"],
+            "best_epoch": res["best_epoch"],
+            "best_val_f1": res["best_val_f1"],
+            "epochs_past_best": res["epochs_past_best"],
+        }
+        _write_summary(summary_path, seed, results)   # <- simpan SEGERA
+
+    _write_summary(summary_path, seed, results)
+    print(f"\nSUMMARY seed {seed}: {model_name} on NusaX-Senti  -> {summary_path}")
+    for lang in TARGET_LANGS:
+        r = results[lang]
+        print(f"  {lang}: train={r['train_f1']*100:.2f}% val={r['val_f1']*100:.2f}% test={r['test_f1']*100:.2f}% "
+              f"(paper: {paper_scores.get(lang, 0)}%) | stop@ep{r['stop_epoch']} best@ep{r['best_epoch']}")
+    return {lang: results[lang]["test_f1"] * 100 for lang in TARGET_LANGS}
+
+
+if __name__ == "__main__":
+    import statistics as st
+
+    model_name = MODEL_CHECKPOINT.split("/")[-1].lower()
+
+    # Angka published (NusaBERT-base, Tabel 6) — KUTIPAN, bukan hasil kami
+    paper_scores = {
+        "ace": 76.5, "ban": 78.7, "bbc": 74.0, "bjn": 82.4, "bug": 71.6,
+        "eng": 84.1, "ind": 89.7, "jav": 84.1, "mad": 75.6, "min": 80.8,
+        "nij": 74.9, "sun": 85.2,
+    }
+
+    per_seed: dict[int, dict[str, float]] = {}
+    for i, seed in enumerate(SEEDS, 1):
+        print(f"\n{'#'*60}\n# SEED {seed}  ({i}/{len(SEEDS)})  ->  {out_base(seed)}\n{'#'*60}")
+        per_seed[seed] = _run_seed(seed, model_name, paper_scores)
+
+    print(f"\n{'='*64}\nMEAN +- STD atas {len(SEEDS)} seed {SEEDS}  [{'AUGMENTED' if USE_AUGMENTED else 'BASELINE'}]\n{'='*64}")
+    print(f"  {'lang':<5} {'mean':>7} {'std':>6} {'paper':>7} {'delta':>7}")
+    for lang in TARGET_LANGS:
+        vals = [per_seed[s][lang] for s in SEEDS if lang in per_seed[s]]
+        if not vals:
+            continue
+        m = st.mean(vals)
+        sd = st.stdev(vals) if len(vals) > 1 else 0.0
+        pf = paper_scores.get(lang, 0)
+        print(f"  {lang:<5} {m:7.2f} {sd:6.2f} {pf:7.2f} {m - pf:+7.2f}")
+    means = [sum(per_seed[s].values()) / len(per_seed[s]) for s in SEEDS]
+    mu_paper = sum(paper_scores.get(lg, 0) for lg in TARGET_LANGS) / len(TARGET_LANGS)
+    print(f"  {'MU':<5} {st.mean(means):7.2f} {st.stdev(means) if len(means) > 1 else 0:6.2f} {mu_paper:7.2f} {st.mean(means) - mu_paper:+7.2f}")
+    print("\n  -> Lapor sebagai mean +- std. JANGAN median/seed-terbaik (= seleksi by-test).")

@@ -12,7 +12,7 @@ OUTPUT_DIR = ROOT / "outputs" / "synthetic"
 SINGLE_LLM_OUTPUT_DIR = ROOT / "outputs" / "synthetic_single_llm"  # baseline ablation, terpisah dari synthetic/
 
 # PIPELINE_MODE dibaca HANYA oleh run_pipeline __main__; pipeline penuh tak pernah bercabang atasnya.
-PIPELINE_MODE = os.getenv("PIPELINE_MODE", "full")  # "full" | "single_llm"
+PIPELINE_MODE = os.getenv("PIPELINE_MODE", "single_llm")  # "full" | "single_llm"
 
 # ── Sinyal SV: NusaBERT-large SV-grounding (LP-FT + LoRA PiSSA, dropout 0.06) ──
 # Dihasilkan scripts/sv_grounding/p1_sweep/pissa_drop06_full.py (champion_p1_base.py).

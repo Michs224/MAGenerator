@@ -45,15 +45,19 @@ LANGS = ['ace', 'ban', 'bjn', 'jav', 'mad', 'min', 'sun']
 SENTENCES_PER_SEED = 5
 BATCH_SIZE = 5
 
-seed_dfs, syn_dfs = {}, {}
+seed_dfs, syn_dfs, valid_dfs, test_dfs = {}, {}, {}, {}
 for lang in LANGS:
     seed_p = ROOT / f'data/nusax_senti/{lang}/train.csv'
     syn_p = single_llm_synthetic_dir(lang) / 'synthetic.csv'
+    valid_p = ROOT / f'data/nusax_senti/{lang}/valid.csv'
+    test_p = ROOT / f'data/nusax_senti/{lang}/test.csv'
     if not (seed_p.exists() and syn_p.exists()):
         print(f'  [{lang}] SKIP: file tidak lengkap ({syn_p})')
         continue
     seed_dfs[lang] = pd.read_csv(seed_p)
     syn_dfs[lang] = pd.read_csv(syn_p)
+    if valid_p.exists(): valid_dfs[lang] = pd.read_csv(valid_p)
+    if test_p.exists(): test_dfs[lang] = pd.read_csv(test_p)
     print(f'  [{lang}] seed={len(seed_dfs[lang])} syn={len(syn_dfs[lang])}')
 print('Sumber synthetic = SINGLE-LLM ->', single_llm_synthetic_dir(LANGS[0]).parent)"""
 

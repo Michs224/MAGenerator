@@ -17,6 +17,8 @@ Cara pakai: flip MODEL_SIZE ("large"/"base") dan USE_AUGMENTED (False=baseline /
 Baseline (USE_AUGMENTED=False) dipakai untuk sanity-check vs NusaX Tabel 2.
 Augmented (USE_AUGMENTED=True) baca data/nusax_senti/<lang>/syn/train_syn.csv.
 """
+import os
+
 import evaluate
 import numpy as np
 import pandas as pd
@@ -33,8 +35,8 @@ from transformers import (
 )
 
 # ─── Toggles ──────────────────────────────────────────────────────────────────
-MODEL_SIZE = "large"        # "large" atau "base" — flip untuk jalankan yang lain
-USE_AUGMENTED = False        # False = baseline (train.csv); True = augmented (syn/train_syn.csv)
+MODEL_SIZE = os.environ.get("XLMR_SIZE", "large").strip()  # "large"/"base"; default large, override via env XLMR_SIZE (.strip = aman spasi cmd)
+USE_AUGMENTED = True        # False = baseline (train.csv); True = augmented (syn/train_syn.csv)
 
 # ─── Hyperparams (NusaX Tabel 10, identik untuk base & large) ────────────────
 MODEL_CHECKPOINT = f"FacebookAI/xlm-roberta-{MODEL_SIZE}"
@@ -57,10 +59,27 @@ GRAD_ACCUM = max(1, TRAIN_BATCH_SIZE // PER_DEVICE_BATCH)
 EVAL_BATCH_SIZE = 64
 MAX_GRAD_NORM = 10.0          # NusaX Tabel 10 (max norm 10)
 EARLY_STOPPING_PATIENCE = 3   # NusaX Tabel 10
-SEED = 42
+SEED = 42                     # dipertahankan utk kompat; run pakai SEEDS di bawah
 
-_suffix = "-syn" if USE_AUGMENTED else ""
-OUTPUT_BASE_DIR = f"outputs/xlmr-sentiment-{MODEL_SIZE}{_suffix}"
+# Multi-seed: lapor mean+-std, BUKAN median/best (Reimers&Gurevych 2017; Dodge dkk. 2019).
+# Yang divariasikan = SEED (init bobot + shuffle data), bukan run-ulang seed sama.
+SEEDS = [42, 0, 123]
+
+# Bobot TIDAK dipakai apa pun -> cuma metrik yang diambil (~2,2 GB/bahasa dihemat utk large).
+# save_strategy tetap "epoch": load_best_model_at_end WAJIB butuh checkpoint utk restore best.
+KEEP_WEIGHTS = False
+
+_suffix = "-syn" if USE_AUGMENTED else "-baseline"
+
+# Sumber sintetis: "full" = pipeline NusaSynth penuh; "single_llm" = baseline ablation.
+SYNTH_SOURCE = "single_llm"  # "full" | "single_llm"
+_src_sub = "syn" if SYNTH_SOURCE == "full" else "syn_single_llm"        # data/nusax_senti/<lang>/<_src_sub>/
+_out_root = "downstream_full" if SYNTH_SOURCE == "full" else "downstream_single_llm"
+_train_file = "train_syn.csv" if SYNTH_SOURCE == "full" else "train_syn_single_llm.csv"
+
+
+def out_base(seed: int) -> str:
+    return f"outputs/{_out_root}/xlmr-sentiment-{MODEL_SIZE}{_suffix}-seed{seed}"
 
 # NusaX Tabel 2 (Winata 2023) — referensi baseline untuk sanity-check (macro-F1 %)
 NUSAX_TABLE2 = {
@@ -73,7 +92,7 @@ NUSAX_TABLE2 = {
 }
 
 
-def finetune(lang_code: str):
+def finetune(lang_code: str, seed: int):
     model_name = MODEL_CHECKPOINT.split("/")[-1].lower()   # xlm-roberta-large / -base
     print(f"\n{'='*60}")
     print(f"Fine-tuning {model_name} on NusaX-Senti [{lang_code}] "
@@ -82,10 +101,13 @@ def finetune(lang_code: str):
 
     # Load data — baseline=train.csv, augmented=syn/train_syn.csv
     data_dir = f"data/nusax_senti/{lang_code}"
-    train_path = f"{data_dir}/syn/train_syn.csv" if USE_AUGMENTED else f"{data_dir}/train.csv"
+    train_path = f"{data_dir}/{_src_sub}/{_train_file}" if USE_AUGMENTED else f"{data_dir}/train.csv"
     train_df = pd.read_csv(train_path)
     valid_df = pd.read_csv(f"{data_dir}/valid.csv")
     test_df = pd.read_csv(f"{data_dir}/test.csv")
+    print(f"  MODE : {'AUGMENTED' if USE_AUGMENTED else 'BASELINE'}  <- {train_path}")
+    print(f"  data : train {len(train_df)} | valid {len(valid_df)} | test {len(test_df)}")
+    print(f"  label: {train_df['label'].value_counts().to_dict()}")
 
     label_list = sorted(train_df["label"].unique().tolist())
     label2id = {v: i for i, v in enumerate(label_list)}
@@ -134,7 +156,7 @@ def finetune(lang_code: str):
         acc = accuracy_metric.compute(predictions=predictions, references=labels)
         return {"f1": round(f1["f1"], 4), "accuracy": round(acc["accuracy"], 4)}
 
-    output_dir = f"{OUTPUT_BASE_DIR}/{model_name}-{lang_code}"
+    output_dir = f"{out_base(seed)}/{model_name}-{lang_code}"
 
     training_args = TrainingArguments(
         output_dir=output_dir,
@@ -147,6 +169,9 @@ def finetune(lang_code: str):
         optim="adamw_torch_fused",                # AdamW (wd=0 → ≡ Adam NusaX)
         learning_rate=LEARNING_RATE,
         weight_decay=WEIGHT_DECAY,                # 0 (NusaX tak punya wd)
+        # adam_beta1=0.9, default HF; NusaX Tabel 10
+        # adam_beta2=0.999, default HF; NusaX Tabel 10
+        # adam_epsilon=1e-8, default HF; NusaX Tabel 10
         max_grad_norm=MAX_GRAD_NORM,              # 10 (NusaX Tabel 10)
         num_train_epochs=NUM_TRAIN_EPOCHS,
         # lr_scheduler_type default "linear" (NusaX γ undefined → pakai default HF)
@@ -155,8 +180,8 @@ def finetune(lang_code: str):
         metric_for_best_model="f1",
         bf16=torch.cuda.is_available(),
         report_to="none",
-        seed=SEED,
-        data_seed=SEED,
+        seed=seed,
+        data_seed=seed,
     )
 
     # model_init agar classification head di-init SETELAH seed di-set (reproducible)
@@ -188,10 +213,13 @@ def finetune(lang_code: str):
     test_results = trainer.evaluate(tokenized_dataset["test"])
     print(f"Test  [{lang_code}]: F1(macro)={test_results['eval_f1']:.4f} Acc={test_results['eval_accuracy']:.4f}")
 
-    best_model_dir = f"{output_dir}/best"
-    trainer.save_model(best_model_dir)
-    tokenizer.save_pretrained(best_model_dir)
-    print(f"  Saved to: {best_model_dir}")
+    if KEEP_WEIGHTS:
+        best_model_dir = f"{output_dir}/best"
+        trainer.save_model(best_model_dir)
+        tokenizer.save_pretrained(best_model_dir)
+        print(f"  Saved to: {best_model_dir}")
+    else:
+        print("  Bobot TIDAK disimpan (KEEP_WEIGHTS=False) - metrik sudah diambil, bobot tak dipakai")
 
     import json
     history_path = f"{output_dir}/train_history.json"
@@ -206,7 +234,6 @@ def finetune(lang_code: str):
     torch.cuda.empty_cache()
 
     # Cleanup checkpoint-* dirs (keep best/ + train_history.json)
-    import os
     import shutil
     deleted = 0
     for entry in os.listdir(output_dir):
@@ -222,38 +249,11 @@ def finetune(lang_code: str):
             "test_results": test_results, "train_history": train_history}
 
 
-if __name__ == "__main__":
+def _write_summary(summary_path: str, seed: int, results: dict) -> None:
+    """Tulis results_summary.json. Dipanggil TIAP bahasa kelar -> file ini = progres + sumber
+    kebenaran buat resume (crash tak menghanguskan bahasa yang sudah selesai)."""
     import json
-    model_name = MODEL_CHECKPOINT.split("/")[-1].lower()
-    nusax_ref = NUSAX_TABLE2[MODEL_SIZE]
-    all_results = {}
-    for lang in TARGET_LANGS:
-        all_results[lang] = finetune(lang)
 
-    # ── Summary + sanity-check vs NusaX Tabel 2 ──
-    print(f"\n{'='*70}")
-    print(f"SUMMARY: {model_name} on NusaX-Senti ({'AUGMENTED' if USE_AUGMENTED else 'BASELINE'})")
-    print(f"{'='*70}")
-    print(f"{'lang':<5} {'train':>7} {'val':>7} {'test':>7}   {'NusaX-T2':>9} {'Δ':>7}  {'flag':>6}")
-    for lang, res in all_results.items():
-        train_f1 = res["train_results"]["train_f1"] * 100
-        val_f1 = res["val_results"]["validation_f1"] * 100
-        test_f1 = res["test_results"]["eval_f1"] * 100
-        ref = nusax_ref.get(lang, 0)
-        delta = test_f1 - ref
-        # sanity-check hanya bermakna untuk BASELINE (augmented tak diharapkan match NusaX)
-        flag = ""
-        if not USE_AUGMENTED and ref:
-            flag = "OK" if abs(delta) <= 2.0 else "CHECK"
-        print(f"{lang:<5} {train_f1:>6.2f}% {val_f1:>6.2f}% {test_f1:>6.2f}%   {ref:>8.1f}% {delta:>+6.2f}  {flag:>6}")
-
-    if not USE_AUGMENTED:
-        print("\nSanity-check: baseline 'CHECK' (|Δ|>2pt vs NusaX Tabel 2) → "
-              "recipe mungkin perlu ditinjau (mis. grid-search LR/batch). |Δ|≤2pt = OK (reproduksi wajar).")
-        print("Catatan: deviasi wajar krn non-determinisme (seed/GPU/versi) + NusaX kemungkinan rata-rata banyak seed.")
-
-    # Save summary
-    summary_path = f"{OUTPUT_BASE_DIR}/results_summary.json"
     summary = {
         "hyperparams": {
             "model_checkpoint": MODEL_CHECKPOINT,
@@ -272,21 +272,93 @@ if __name__ == "__main__":
             "early_stopping_patience": EARLY_STOPPING_PATIENCE,
             "optimizer": "adamw_torch_fused",
             "lr_scheduler": "linear",
-            "seed": SEED,
+            "seed": seed,
+            "keep_weights": KEEP_WEIGHTS,
             "source": "NusaX Winata 2023 Tabel 10 (LR/batch grid best; epochs/early-stop/max_norm fixed; wd absent=0; gamma undefined->linear)",
         },
-        "results": {
-            lang: {
-                "train_f1": res["train_results"]["train_f1"],
-                "train_accuracy": res["train_results"]["train_accuracy"],
-                "val_f1": res["val_results"]["validation_f1"],
-                "val_accuracy": res["val_results"]["validation_accuracy"],
-                "test_f1": res["test_results"]["eval_f1"],
-                "test_accuracy": res["test_results"]["eval_accuracy"],
-            }
-            for lang, res in all_results.items()
-        },
+        "results": results,
     }
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"\nResults saved to: {summary_path}")
+
+
+def _run_seed(seed: int, model_name: str, nusax_ref: dict) -> dict[str, float]:
+    """Latih semua bahasa untuk SATU seed. RESUMABLE: results_summary.json = sumber kebenaran
+    progres, ditulis tiap bahasa kelar -> crash tak menghanguskan bahasa yang sudah jadi."""
+    import json
+
+    os.makedirs(out_base(seed), exist_ok=True)
+    summary_path = f"{out_base(seed)}/results_summary.json"
+    results = json.load(open(summary_path))["results"] if os.path.exists(summary_path) else {}
+    if results:
+        print(f"  RESUME: {len(results)}/{len(TARGET_LANGS)} bahasa sudah ada -> {sorted(results)}")
+
+    for lang in TARGET_LANGS:
+        if lang in results:
+            print(f"[seed {seed}][{lang}] SKIP (sudah di results_summary)")
+            continue
+        res = finetune(lang, seed)
+        results[lang] = {
+            "train_f1": res["train_results"]["train_f1"],
+            "train_accuracy": res["train_results"]["train_accuracy"],
+            "val_f1": res["val_results"]["validation_f1"],
+            "val_accuracy": res["val_results"]["validation_accuracy"],
+            "test_f1": res["test_results"]["eval_f1"],
+            "test_accuracy": res["test_results"]["eval_accuracy"],
+        }
+        _write_summary(summary_path, seed, results)   # <- simpan SEGERA
+
+    _write_summary(summary_path, seed, results)
+
+    # ── Summary + sanity-check vs NusaX Tabel 2 ──
+    print(f"\n{'='*70}")
+    print(f"SUMMARY seed {seed}: {model_name} on NusaX-Senti ({'AUGMENTED' if USE_AUGMENTED else 'BASELINE'})  -> {summary_path}")
+    print(f"{'='*70}")
+    print(f"{'lang':<5} {'train':>7} {'val':>7} {'test':>7}   {'NusaX-T2':>9} {'delta':>7}  {'flag':>6}")
+    for lang in TARGET_LANGS:
+        r = results[lang]
+        train_f1 = r["train_f1"] * 100
+        val_f1 = r["val_f1"] * 100
+        test_f1 = r["test_f1"] * 100
+        ref = nusax_ref.get(lang, 0)
+        delta = test_f1 - ref
+        # sanity-check hanya bermakna untuk BASELINE (augmented tak diharapkan match NusaX)
+        flag = ""
+        if not USE_AUGMENTED and ref:
+            flag = "OK" if abs(delta) <= 2.0 else "CHECK"
+        print(f"{lang:<5} {train_f1:>6.2f}% {val_f1:>6.2f}% {test_f1:>6.2f}%   {ref:>8.1f}% {delta:>+6.2f}  {flag:>6}")
+
+    if not USE_AUGMENTED:
+        print("\nSanity-check: baseline 'CHECK' (|delta|>2pt vs NusaX Tabel 2) -> "
+              "recipe mungkin perlu ditinjau (mis. grid-search LR/batch). |delta|<=2pt = OK (reproduksi wajar).")
+        print("Catatan: deviasi wajar krn non-determinisme (seed/GPU/versi) + NusaX kemungkinan rata-rata banyak seed.")
+
+    return {lang: results[lang]["test_f1"] * 100 for lang in TARGET_LANGS}
+
+
+if __name__ == "__main__":
+    import statistics as st
+
+    model_name = MODEL_CHECKPOINT.split("/")[-1].lower()
+    nusax_ref = NUSAX_TABLE2[MODEL_SIZE]
+
+    per_seed: dict[int, dict[str, float]] = {}
+    for i, seed in enumerate(SEEDS, 1):
+        print(f"\n{'#'*60}\n# SEED {seed}  ({i}/{len(SEEDS)})  ->  {out_base(seed)}\n{'#'*60}")
+        per_seed[seed] = _run_seed(seed, model_name, nusax_ref)
+
+    print(f"\n{'='*64}\nMEAN +- STD atas {len(SEEDS)} seed {SEEDS}  "
+          f"[XLM-R-{MODEL_SIZE} {'AUGMENTED' if USE_AUGMENTED else 'BASELINE'}]\n{'='*64}")
+    print(f"  {'lang':<5} {'mean':>7} {'std':>6} {'NusaX':>7} {'delta':>7}")
+    for lang in TARGET_LANGS:
+        vals = [per_seed[s][lang] for s in SEEDS if lang in per_seed[s]]
+        if not vals:
+            continue
+        m = st.mean(vals)
+        sd = st.stdev(vals) if len(vals) > 1 else 0.0
+        ref = nusax_ref.get(lang, 0)
+        print(f"  {lang:<5} {m:7.2f} {sd:6.2f} {ref:7.2f} {m - ref:+7.2f}")
+    means = [sum(per_seed[s].values()) / len(per_seed[s]) for s in SEEDS]
+    mu_ref = sum(nusax_ref.get(lg, 0) for lg in TARGET_LANGS) / len(TARGET_LANGS)
+    print(f"  {'MU':<5} {st.mean(means):7.2f} {st.stdev(means) if len(means) > 1 else 0:6.2f} {mu_ref:7.2f} {st.mean(means) - mu_ref:+7.2f}")
+    print("\n  -> Lapor sebagai mean +- std. JANGAN median/seed-terbaik (= seleksi by-test).")
