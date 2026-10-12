@@ -169,50 +169,110 @@ flowchart LR
 
 
 flowchart TB
-    SEED["<b>Seed Data</b>
-    ──────────────
-    NusaX-Senti
-    500 train/bahasa
-    (iterasi per seed +
-    few-shot examples)"] --> CA["<b>Contextualizer Agent</b>
-    ──────────────
-    • Terima 1 seed per iterasi
-    • Analisis konteks seed
-    • Identifikasi aspek variasi
-      secara adaptif (min. 3)
-    • Output: instruksi variasi"]
-    CA --> DG["<b>Dialect Generator Agent</b>
-    ──────────────
-    • Terima input dari
-      Contextualizer
-    • Generasi N kalimat sintetis
-      dalam bahasa daerah murni
-    • Patuhi constraint
-      linguistik"]
-    DG --> SV["<b>Sentiment Validator Agent</b>
-    ──────────────
-    • Verifikasi konsistensi
-      label sentimen
-    • Deteksi ketidaksesuaian
-      polaritas opini
-    • Lolos / Tolak"]
-    SV -- Lolos --> LV["<b>Linguistic Validator Agent</b>
-    ──────────────
-    • Periksa kemurnian bahasa
-    • Deteksi campur kode
-    • Deteksi token asing
-    • Lolos / Tolak"]
-    SV -- Tolak + Feedback --> DG
-    LV -- Lolos --> OUT["<b>Synthetic Dataset</b>
-    ──────────────
-    Data sintetis
-    tervalidasi"]
-    LV -- Tolak + Feedback --> DG
+SEED["<span style='font-size:26px !important'><b>Seed Data</b></span>
+───────────────────
+• NusaX-Senti
+• 500 data latih per bahasa
+• Seed Profile per label"]
 
-    style SEED fill:#ECEFF1,stroke:#607D8B,stroke-width:2px,text-align:left
-    style CA fill:#E3F2FD,stroke:#1976D2,stroke-width:2px,text-align:left
-    style DG fill:#E8F5E9,stroke:#388E3C,stroke-width:2px,text-align:left
-    style SV fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,text-align:left
-    style LV fill:#FCE4EC,stroke:#C62828,stroke-width:2px,text-align:left
-    style OUT fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,text-align:left
+CA["<span style='font-size:30px !important'><b>Contextualizer Agent</b></span>
+──────────────────────────────────────────
+<b>Input:</b>
+    • 5 kalimat seed per batch
+<b>Process:</b>
+    • Analisis domain, gaya, dan ekspresi sentimen per seed
+<b>Output:</b>
+    • Rencana variasi per seed (strategy + preserve)"]
+
+DG["<span style='font-size:30px !important'><b>Generator Agent</b></span>
+───────────────────────────────────
+<b>Input:</b>
+    • Rencana variasi
+    • Referensi seed
+    • Seed profile (mean & std panjang kalimat)
+<b>Output:</b>
+    • Kalimat sintetis dalam bahasa daerah target
+<b>Constraint:</b>
+    • Sentimen sesuai label target
+    • Panjang mengikuti seed profile
+    • Tidak menjiplak seed
+    • Tiap kalimat berbeda secara struktural"]
+
+SV["<span style='font-size:30px !important'><b>Sentiment Validator (SV) Agent</b></span>
+────────────────────────────────────────
+<b>Input:</b>
+    • Kalimat sintetis
+    • Prediksi NusaBERT (label + confidence)
+    • Seed sebagai konteks
+<b>Process:</b>
+    • Chain-of-Thought reasoning untuk validasi sentimen
+    • Prediksi NusaBERT sebagai acuan pendukung
+<b>Output:</b>
+    • PASS / REJECT
+    • Umpan balik diagnostik"]
+
+LV["<span style='font-size:30px !important'><b>Linguistic Validator (LV) Agent</b></span>
+──────────────────────────────────────────
+<b>Input:</b>
+    • Kalimat sintetis
+    • Identifikasi GlotLID (bahasa + confidence)
+    • Seed sebagai konteks
+<b>Process:</b>
+    • Chain-of-Thought reasoning untuk penilaian kealamian
+    • Deteksi language confusion
+    • Identifikasi GlotLID sebagai acuan pendukung
+<b>Output:</b>
+    • PASS / REJECT
+    • Umpan balik diagnostik"]
+
+PSLM["<span style='font-size:30px !important'><b>Per-Sentence Length Match (PSLM)</b></span>
+───────────────────────────────────────────
+<b>Input:</b>
+    • Kalimat lolos LV
+    • Seed profile (mean & std panjang kalimat)
+<b>Process:</b>
+    • Bandingkan panjang kalimat vs rata-rata seed per label
+<b>Constraint:</b>
+    • Deviasi ≤ 1.0 × std per label
+<b>Output:</b>
+    • Lolos / kembali ke Generator"]
+
+DEDUP["<span style='font-size:30px !important'><b>Cross-batch Deduplication</b></span>
+─────────────────────────────────────────
+<b>Input:</b>
+    • Kalimat lolos PSLM
+<b>Process:</b>
+    • Hitung Jaccard bigram similarity vs korpus sintetis sebelumnya
+<b>Constraint:</b>
+    • Similarity < 0.5
+<b>Output:</b>
+    • Disimpan / difilter sebagai duplikat"]
+
+OUT["<span style='font-size:30px !important'><b>Synthetic Dataset</b></span>
+───────────────────────
+Korpus data sintetis tervalidasi"]
+
+SEED --> CA
+CA --> DG
+DG --> SV
+SV -- Lolos --> LV
+SV -- "Tolak + umpan balik" --> DG
+LV -- Lolos --> PSLM
+LV -- "Tolak + umpan balik" --> DG
+PSLM -- Lolos --> DEDUP
+PSLM -- "Tolak + umpan balik" --> DG
+DEDUP --> OUT
+
+classDef big font-size:25px;
+class SEED,CA,DG,SV,LV,PSLM,DEDUP,OUT big;
+
+style SEED fill:#ECEFF1,stroke:#607D8B,stroke-width:2px,text-align:left
+style CA fill:#E3F2FD,stroke:#1976D2,stroke-width:2px,text-align:left
+style DG fill:#E8F5E9,stroke:#388E3C,stroke-width:2px,text-align:left
+style SV fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,text-align:left
+style LV fill:#FCE4EC,stroke:#C62828,stroke-width:2px,text-align:left
+style PSLM fill:#FFF9C4,stroke:#F9A825,stroke-width:2px,text-align:left
+style DEDUP fill:#E0F2F1,stroke:#00796B,stroke-width:2px,text-align:left
+style OUT fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,text-align:left
+
 

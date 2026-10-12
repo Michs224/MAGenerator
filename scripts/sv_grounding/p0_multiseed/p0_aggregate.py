@@ -24,7 +24,7 @@ DEPLOY_SEED = 42   # Cara A: seed deploy ditetapkan di muka (pre-commit)
 
 # Peta seed -> folder yang punya results_summary.json (42 = run kanonik yang di-reuse)
 FT_RUNS = {
-    42: "outputs/nusabert-sentiment-large",
+    42: "outputs/_archive_downstream_pre_2026-07/nusabert-sentiment-large",  # dipindah ke arsip 2026-07; path lama bikin seed 42 ter-skip
     0:  "outputs/p0-ft-multiseed/seed_0",
     1:  "outputs/p0-ft-multiseed/seed_1",
     2:  "outputs/p0-ft-multiseed/seed_2",
